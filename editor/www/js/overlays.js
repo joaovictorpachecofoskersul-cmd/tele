@@ -1,6 +1,7 @@
 // Elementos desenhados por cima do vídeo (Canvas 2D).
 import { cssFont } from './fonts.js';
 import { roundRect } from './captions.js';
+import BRAZIL from '../vendor/brazil-map.js';
 
 export const TEXT_ANIMS = [
   { id: 'pop', name: 'Pular' }, { id: 'fade', name: 'Aparecer' }, { id: 'slide', name: 'Subir' },
@@ -26,6 +27,15 @@ export const ELEMENTS = [
   { kind: 'follow', name: 'Botão seguir', p: { text: 'SEGUIR', handle: '@seuperfil', x: .5, y: .82 } },
   { kind: 'bubble', name: 'Balão de fala', p: { text: 'Olha isso!', x: .5, y: .3, size: .065, tail: 'baixo' } },
   { kind: 'text', name: 'Data / local', p: { text: '📍 Cuiabá · hoje', font: 'Poppins', size: .045, color: '#FFFFFF', stroke: '', bg: 'rgba(0,0,0,.55)', x: .5, y: .12, anim: 'fade', upper: false } },
+  { kind: 'pill', name: 'Etiqueta', p: { text: 'AULA 1 DE 5', bg: '#FFE600', color: '#111111', x: .5, y: .12, size: .045 } },
+  { kind: 'checklist', name: 'Lista com checks', p: { text: 'Água tratada\nEsgoto\nMoradia digna\nAcesso à saúde', x: .5, y: .45, size: .055, color: '#FFFFFF', check: '#22C55E', box: 'rgba(0,0,0,.55)' } },
+  { kind: 'people', name: 'Pessoas (1 em cada N)', p: { total: 10, hi: 3, label: '3 EM CADA 10', color: '#FFE600', x: .5, y: .45 } },
+  { kind: 'map', name: 'Mapa do Brasil', p: { states: 'MT, BA, PA', color: '#FFE600', base: 'rgba(255,255,255,.25)', label: '', x: .5, y: .45, size: .8 } },
+  { kind: 'bars', name: 'Gráfico de barras', p: { text: 'Norte: 42\nNordeste: 35\nCentro-Oeste: 12\nSudeste: 8\nSul: 3', title: 'CASOS POR REGIÃO (%)', color: '#FFE600', x: .5, y: .45 } },
+  { kind: 'module', name: 'Card de módulo', p: { num: 'MÓDULO 2', title: 'O que é e como prevenir', bg: '#173B32', accent: '#F0B429' } },
+  { kind: 'floaters', name: 'Fundo animado', p: { color: '#FFFFFF', amount: .5 } },
+  { kind: 'blurbox', name: 'Desfocar área', p: { x: .5, y: .82, w: .9, h: .1, mode: 'blur' } },
+  { kind: 'text', name: 'Crédito de imagem', p: { text: 'Foto: Autor, CC BY 4.0', font: 'Poppins', size: .026, color: '#FFFFFF', stroke: '', bg: 'rgba(0,0,0,.5)', x: .5, y: .95, anim: 'fade', upper: false } },
   { kind: 'like', name: 'Curtida (coração)', p: { x: .82, y: .62, count: '12,4 mil', color: '#FF2D55' } },
   { kind: 'click', name: 'Cursor clicando', p: { x: .5, y: .5, clicks: 2 } },
   { kind: 'tap', name: 'Dedo tocando', p: { x: .5, y: .55, clicks: 2 } },
@@ -41,7 +51,7 @@ export const ELEMENTS = [
   { kind: 'circle', name: 'Círculo de destaque', p: { x: .5, y: .45, r: .18, color: '#FF2B2B' } },
   { kind: 'confetti', name: 'Confete', p: {} },
   { kind: 'progress', name: 'Barra de progresso', p: { color: '#FFE600', pos: 'top' }, whole: true },
-  { kind: 'image', name: 'Imagem / logo', p: { mid: null, x: .5, y: .15, scale: .3, opacity: 1, anim: 'pop' }, needsImage: true },
+  { kind: 'image', name: 'Imagem / logo', p: { mid: null, x: .5, y: .15, scale: .3, opacity: 1, anim: 'pop', credit: '', kb: false }, needsImage: true },
 ];
 
 const clamp01 = x => Math.max(0, Math.min(1, x));
@@ -70,10 +80,15 @@ function inOut(t, it, inD = 0.3, outD = 0.25) {
   return { a, b, local: t - it.start };
 }
 
+// unidade de tamanho: o lado menor do quadro (assim os elementos ficam iguais no vertical, quadrado e deitado)
+let U = 1080;
+
 export function drawItems(ctx, p, t, W, H, env) {
+  U = Math.min(W, H);
   const boxes = [];
-  for (const it of p.items) {
-    if (it.kind === 'effect' || it.kind === 'sfx') continue;
+  const order = p.items.filter(it => it.kind === 'blurbox').concat(p.items.filter(it => it.kind !== 'blurbox'));
+  for (const it of order) {
+    if (it.kind === 'effect' || it.kind === 'sfx' || it.kind === 'audio') continue;
     if (t < it.start || t >= it.start + it.dur) continue;
     const fn = DRAW[it.kind];
     if (!fn) continue;
@@ -90,7 +105,7 @@ export function drawItems(ctx, p, t, W, H, env) {
 function textBlock(ctx, it, t, W, H) {
   const q = it.p;
   const { a, b, local } = inOut(t, it);
-  const size = W * (q.size || .08);
+  const size = U * (q.size || .08);
   ctx.font = cssFont(q.font || 'Poppins', size, 900);
   ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
   const txt = q.upper ? String(q.text).toLocaleUpperCase('pt-BR') : String(q.text);
@@ -183,7 +198,7 @@ const DRAW = {
 
   stamp(ctx, it, t, W, H) {
     const q = it.p, { a, b, local } = inOut(t, it, .18);
-    const size = W * (q.size || .14);
+    const size = U * (q.size || .14);
     const cx = q.x * W, cy = q.y * H;
     const sc = 2.6 - 1.6 * easeOut(a);
     const shake = local < .3 ? (hash(Math.floor(local * 60)) - .5) * size * .1 * (1 - local / .3) : 0;
@@ -206,7 +221,7 @@ const DRAW = {
 
   counter(ctx, it, t, W, H) {
     const q = it.p, { a, b, local } = inOut(t, it, .2);
-    const size = W * (q.size || .16);
+    const size = U * (q.size || .16);
     const k = easeOut(clamp01(local / Math.max(.3, it.dur * .7)));
     const v = q.from + (q.to - q.from) * k;
     const txt = (q.prefix || '') + v.toLocaleString('pt-BR', { minimumFractionDigits: q.decimals || 0, maximumFractionDigits: q.decimals || 0 }) + (q.suffix || '');
@@ -240,7 +255,7 @@ const DRAW = {
 
   knockout(ctx, it, t, W, H, env) {
     const q = it.p, { a, b } = inOut(t, it, .35);
-    const size = W * (q.size || .3);
+    const size = U * (q.size || .3);
     const tmp = env.scratch(W, H);
     const c2 = tmp.getContext('2d');
     c2.clearRect(0, 0, W, H);
@@ -270,7 +285,7 @@ const DRAW = {
     for (let i = 0; i < 16; i++) { ctx.rotate(Math.PI / 8); ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(H, -H * .09); ctx.lineTo(H, H * .09); ctx.fill(); }
     ctx.restore();
     if (q.confetti) confetti(ctx, W, H, local, it.start);
-    const s1 = W * .2, s2 = W * .075;
+    const s1 = U * .2, s2 = U * .075;
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
     const pop = easeOutBack(clamp01(local / .45));
     ctx.save(); ctx.translate(W / 2, H * .42); ctx.scale(pop, pop);
@@ -302,7 +317,7 @@ const DRAW = {
 
   lower(ctx, it, t, W, H) {
     const q = it.p, { a, b } = inOut(t, it, .45, .3);
-    const s1 = W * .055, s2 = W * .036;
+    const s1 = U * .055, s2 = U * .036;
     const x = q.x * W, y = q.y * H;
     ctx.font = cssFont('Poppins', s1, 900);
     const w1 = ctx.measureText(q.name || '').width;
@@ -324,7 +339,7 @@ const DRAW = {
 
   follow(ctx, it, t, W, H) {
     const q = it.p, { a, b, local } = inOut(t, it, .35);
-    const s = W * .05;
+    const s = U * .05;
     ctx.font = cssFont('Poppins', s, 900);
     const tw = ctx.measureText(q.text || 'SEGUIR').width;
     ctx.font = cssFont('Poppins', s * .8, 700);
@@ -353,7 +368,7 @@ const DRAW = {
 
   bubble(ctx, it, t, W, H) {
     const q = it.p, { a, b } = inOut(t, it, .3);
-    const size = W * (q.size || .065);
+    const size = U * (q.size || .065);
     ctx.font = cssFont('Poppins', size, 800);
     const lines = wrap(ctx, q.text || '', W * .7);
     const lh = size * 1.2;
@@ -372,9 +387,181 @@ const DRAW = {
     return { x: cx - bw / 2, y: cy - bh / 2, w: bw, h: bh };
   },
 
+  pill(ctx, it, t, W, H) {
+    const q = it.p, { a, b } = inOut(t, it, .3);
+    const fs = U * (q.size || .045);
+    ctx.font = cssFont('Poppins', fs, 800);
+    const txt = String(q.text || '').toLocaleUpperCase('pt-BR');
+    const tw = ctx.measureText(txt).width, bw = tw + fs * 1.6, bh = fs * 1.9;
+    const cx = q.x * W, cy = q.y * H;
+    ctx.globalAlpha = b; ctx.translate(cx, cy); ctx.scale(.4 + .6 * easeOutBack(a), .4 + .6 * easeOutBack(a));
+    ctx.fillStyle = q.bg || '#FFE600'; roundRect(ctx, -bw / 2, -bh / 2, bw, bh, bh / 2); ctx.fill();
+    ctx.fillStyle = q.color || '#111'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(txt, 0, fs * .05);
+    return { x: cx - bw / 2, y: cy - bh / 2, w: bw, h: bh };
+  },
+
+  checklist(ctx, it, t, W, H) {
+    const q = it.p, { a, b, local } = inOut(t, it, .3);
+    const fs = U * (q.size || .055);
+    const lines = String(q.text || '').split('\n').map(x => x.trim()).filter(Boolean);
+    if (!lines.length) return null;
+    ctx.font = cssFont('Poppins', fs, 700);
+    const lh = fs * 1.9;
+    const bw = Math.min(W * .9, Math.max(...lines.map(l => ctx.measureText(l).width)) + fs * 3.2), bh = lines.length * lh + fs;
+    const x0 = q.x * W - bw / 2, y0 = q.y * H - bh / 2;
+    ctx.globalAlpha = Math.min(a, b);
+    if (q.box) { ctx.fillStyle = q.box; roundRect(ctx, x0, y0, bw, bh, fs * .6); ctx.fill(); }
+    // cada item começa apagado ("fantasma") e acende na sua vez
+    const step = Math.max(.35, (it.dur - .8) / lines.length);
+    lines.forEach((l, i) => {
+      const k = clamp01((local - .3 - i * step) / .3);
+      const y = y0 + fs * .5 + lh * (i + .5);
+      const cx = x0 + fs * 1.3, r = fs * .55;
+      ctx.globalAlpha = Math.min(a, b) * (.3 + .7 * k);
+      ctx.lineWidth = fs * .12; ctx.strokeStyle = k > 0 ? (q.check || '#22C55E') : 'rgba(255,255,255,.6)';
+      ctx.fillStyle = k > 0 ? (q.check || '#22C55E') : 'transparent';
+      ctx.beginPath(); ctx.arc(cx, y, r * (k > 0 ? .9 + .2 * Math.sin(Math.min(1, k) * Math.PI) : 1), 0, Math.PI * 2);
+      if (k > 0) ctx.fill(); ctx.stroke();
+      if (k > 0) {
+        ctx.strokeStyle = '#fff'; ctx.lineWidth = fs * .13; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+        ctx.beginPath(); ctx.moveTo(cx - r * .45, y); ctx.lineTo(cx - r * .45 + r * .35 * Math.min(1, k * 2), y + r * .35 * Math.min(1, k * 2));
+        if (k > .5) ctx.lineTo(cx - r * .1 + r * .6 * (k - .5) * 2, y + r * .35 - r * .7 * (k - .5) * 2);
+        ctx.stroke();
+      }
+      ctx.fillStyle = q.color || '#fff'; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+      ctx.fillText(l, cx + fs * 1.1, y + fs * .03);
+    });
+    return { x: x0, y: y0, w: bw, h: bh };
+  },
+
+  people(ctx, it, t, W, H) {
+    const q = it.p, { a, b, local } = inOut(t, it, .3);
+    const n = Math.max(1, Math.min(50, Math.round(q.total || 10))), hi = Math.max(0, Math.min(n, Math.round(q.hi || 0)));
+    const cols = n <= 10 ? n : Math.ceil(Math.sqrt(n * 2));
+    const rows = Math.ceil(n / cols);
+    const cell = Math.min(W * .86 / cols, H * .3 / rows);
+    const x0 = q.x * W - cols * cell / 2, y0 = q.y * H - rows * cell / 2;
+    ctx.globalAlpha = b;
+    for (let i = 0; i < n; i++) {
+      const c = i % cols, r = Math.floor(i / cols);
+      const k = clamp01((local - i * .05) / .25);
+      const on = i < hi && local > .6 + n * .05 + i * .12;
+      const x = x0 + (c + .5) * cell, y = y0 + (r + .5) * cell + (1 - easeOutBack(k)) * cell * .4;
+      ctx.globalAlpha = b * k;
+      ctx.fillStyle = on ? (q.color || '#FFE600') : 'rgba(255,255,255,.35)';
+      const s = cell * .42;
+      ctx.beginPath(); ctx.arc(x, y - s * .55, s * .32, 0, Math.PI * 2); ctx.fill();
+      roundRect(ctx, x - s * .42, y - s * .15, s * .84, s * .95, s * .35); ctx.fill();
+    }
+    ctx.globalAlpha = b * clamp01((local - .8) / .4);
+    if (q.label) {
+      const fs = U * .07; ctx.font = cssFont('Poppins', fs, 900); ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+      ctx.lineWidth = fs * .16; ctx.strokeStyle = '#000'; ctx.lineJoin = 'round';
+      ctx.strokeText(q.label, q.x * W, y0 + rows * cell + fs * .3); ctx.fillStyle = q.color || '#FFE600'; ctx.fillText(q.label, q.x * W, y0 + rows * cell + fs * .3);
+    }
+    return { x: x0, y: y0, w: cols * cell, h: rows * cell + W * .12 };
+  },
+
+  map(ctx, it, t, W, H) {
+    const q = it.p, { a, b, local } = inOut(t, it, .4);
+    const paths = brazilPaths();
+    const [vw, vh] = [613, 639];
+    const size = Math.min(W * .95, U * (q.size || .8)), sc = size / vw;
+    const x0 = q.x * W - size / 2, y0 = q.y * H - vh * sc / 2;
+    const sel = new Set(String(q.states || '').toLowerCase().split(/[\s,;]+/).filter(Boolean));
+    ctx.globalAlpha = b * Math.min(1, a * 1.5);
+    ctx.save(); ctx.translate(x0, y0); ctx.scale(sc, sc);
+    ctx.lineJoin = 'round';
+    let i = 0;
+    for (const [id, path] of paths) {
+      const on = sel.has(id);
+      const k = on ? clamp01((local - .5 - (i++) * .15) / .35) : 0;
+      ctx.fillStyle = on && k > 0 ? mix(q.base || '#555', q.color || '#FFE600', k) : (q.base || 'rgba(255,255,255,.25)');
+      ctx.fill(path);
+      ctx.strokeStyle = 'rgba(0,0,0,.55)'; ctx.lineWidth = 1.2 / Math.max(.3, sc) * sc * 1.5; ctx.stroke(path);
+    }
+    ctx.restore();
+    if (q.label) {
+      const fs = U * .06; ctx.font = cssFont('Poppins', fs, 900); ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+      ctx.lineWidth = fs * .16; ctx.strokeStyle = '#000'; ctx.strokeText(q.label, q.x * W, y0 + vh * sc + fs * .2);
+      ctx.fillStyle = '#fff'; ctx.fillText(q.label, q.x * W, y0 + vh * sc + fs * .2);
+    }
+    const cf = Math.max(9, U * .016); ctx.font = cssFont('Poppins', cf, 400); ctx.fillStyle = 'rgba(255,255,255,.7)'; ctx.textAlign = 'right'; ctx.textBaseline = 'bottom';
+    ctx.fillText('Mapa: @svg-maps, CC BY 4.0', x0 + size, y0 + vh * sc);
+    return { x: x0, y: y0, w: size, h: vh * sc };
+  },
+
+  bars(ctx, it, t, W, H) {
+    const q = it.p, { a, b, local } = inOut(t, it, .3);
+    const rows = String(q.text || '').split('\n').map(l => { const m = l.split(':'); return { label: (m[0] || '').trim(), v: parseFloat(String(m[1] || '').replace(',', '.')) || 0 }; }).filter(r => r.label);
+    if (!rows.length) return null;
+    const max = Math.max(...rows.map(r => r.v), 1e-9);
+    const bw = Math.min(W * .86, U * 1.1), fs = U * .042, rh = fs * 2.3;
+    const titleH = q.title ? fs * 2.2 : 0;
+    const bh = titleH + rows.length * rh + fs;
+    const x0 = q.x * W - bw / 2, y0 = q.y * H - bh / 2;
+    ctx.globalAlpha = Math.min(a, b);
+    ctx.fillStyle = 'rgba(0,0,0,.55)'; roundRect(ctx, x0, y0, bw, bh, fs * .6); ctx.fill();
+    if (q.title) { ctx.font = cssFont('Poppins', fs * 1.05, 900); ctx.fillStyle = '#fff'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(q.title, q.x * W, y0 + titleH * .6); }
+    const labW = bw * .34, barX = x0 + labW + fs * .6, barMax = bw - labW - fs * 4.2;
+    rows.forEach((r, i) => {
+      const k = easeOut(clamp01((local - .3 - i * .15) / .7));
+      const y = y0 + titleH + fs * .5 + i * rh;
+      ctx.font = cssFont('Poppins', fs * .85, 700); ctx.fillStyle = '#fff'; ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+      ctx.fillText(r.label, x0 + labW, y + rh / 2);
+      ctx.fillStyle = q.color || '#FFE600'; roundRect(ctx, barX, y + rh * .2, Math.max(2, barMax * (r.v / max) * k), rh * .6, rh * .15); ctx.fill();
+      ctx.textAlign = 'left'; ctx.fillStyle = '#fff'; ctx.font = cssFont('Poppins', fs * .85, 800);
+      ctx.fillText((r.v * k).toLocaleString('pt-BR', { maximumFractionDigits: 1 }), barX + barMax * (r.v / max) * k + fs * .4, y + rh / 2);
+    });
+    return { x: x0, y: y0, w: bw, h: bh };
+  },
+
+  module(ctx, it, t, W, H) {
+    const q = it.p, { a, b, local } = inOut(t, it, .35, .3);
+    ctx.globalAlpha = Math.min(a, b);
+    ctx.fillStyle = q.bg || '#173B32'; ctx.fillRect(0, 0, W, H);
+    const e = easeOut(clamp01(local / .6));
+    ctx.fillStyle = q.accent || '#F0B429';
+    ctx.fillRect(0, H * .4, W * e, H * .012);
+    floatersDraw(ctx, W, H, local, .35, '#FFFFFF', 7);
+    const f1 = U * .075, f2 = U * .085;
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.globalAlpha = Math.min(a, b) * clamp01((local - .15) / .3);
+    ctx.font = cssFont('Poppins', f1, 800); ctx.fillStyle = q.accent || '#F0B429';
+    ctx.fillText(String(q.num || '').toLocaleUpperCase('pt-BR'), W / 2, H * .34);
+    ctx.globalAlpha = Math.min(a, b) * clamp01((local - .35) / .35);
+    ctx.font = cssFont('Poppins', f2, 900); ctx.fillStyle = '#fff';
+    const lines = wrap(ctx, q.title || '', W * .84);
+    lines.forEach((l, i) => ctx.fillText(l, W / 2, H * .5 + i * f2 * 1.2 + (1 - easeOut(clamp01((local - .35) / .4))) * f2));
+    return { x: 0, y: 0, w: W, h: H };
+  },
+
+  floaters(ctx, it, t, W, H) {
+    const { a, b, local } = inOut(t, it, .6, .6);
+    ctx.globalAlpha = Math.min(a, b);
+    floatersDraw(ctx, W, H, local, it.p.amount ?? .5, it.p.color || '#fff', 14);
+    return null;
+  },
+
+  blurbox(ctx, it, t, W, H, env) {
+    const q = it.p;
+    const w = Math.max(4, q.w * W), h = Math.max(4, q.h * H), x = q.x * W - w / 2, y = q.y * H - h / 2;
+    const k = q.mode === 'pixel' ? 0.04 : 0.08;
+    const sw = Math.max(2, Math.round(w * k)), sh = Math.max(2, Math.round(h * k));
+    const tmp = env.scratch(sw, sh); const c2 = tmp.getContext('2d');
+    c2.imageSmoothingEnabled = true; c2.clearRect(0, 0, sw, sh);
+    c2.drawImage(ctx.canvas, x, y, w, h, 0, 0, sw, sh);
+    ctx.save(); ctx.beginPath(); roundRect(ctx, x, y, w, h, Math.min(w, h) * .2); ctx.clip();
+    ctx.imageSmoothingEnabled = q.mode !== 'pixel';
+    ctx.drawImage(tmp, 0, 0, sw, sh, x, y, w, h);
+    if (q.mode !== 'pixel') { ctx.globalAlpha = .25; ctx.drawImage(tmp, 0, 0, sw, sh, x - w * .02, y - h * .02, w * 1.04, h * 1.04); }
+    ctx.restore(); ctx.imageSmoothingEnabled = true;
+    return { x, y, w, h };
+  },
+
   like(ctx, it, t, W, H) {
     const q = it.p, { a, b, local } = inOut(t, it, .25);
-    const s = W * .1, x = q.x * W, y = q.y * H;
+    const s = U * .1, x = q.x * W, y = q.y * H;
     ctx.globalAlpha = b;
     // explosão de coraçõezinhos subindo
     for (let i = 0; i < 9; i++) {
@@ -395,7 +582,7 @@ const DRAW = {
 
   click(ctx, it, t, W, H) {
     const q = it.p, { a, b, local } = inOut(t, it, .35);
-    const s = W * .09, x = q.x * W, y = q.y * H;
+    const s = U * .09, x = q.x * W, y = q.y * H;
     const n = q.clicks || 2, per = Math.max(.5, (it.dur - .5) / n);
     const ph = Math.max(0, local - .4) % per, pressed = local > .4 && ph < .14;
     const k = easeOut(a);
@@ -411,7 +598,7 @@ const DRAW = {
 
   tap(ctx, it, t, W, H) {
     const q = it.p, { a, b, local } = inOut(t, it, .35);
-    const s = W * .14, x = q.x * W, y = q.y * H;
+    const s = U * .14, x = q.x * W, y = q.y * H;
     const n = q.clicks || 2, per = Math.max(.5, (it.dur - .5) / n);
     const ph = Math.max(0, local - .4) % per;
     ctx.globalAlpha = b;
@@ -428,7 +615,7 @@ const DRAW = {
 
   bell(ctx, it, t, W, H) {
     const q = it.p, { a, b, local } = inOut(t, it, .3);
-    const s = W * .085, x = q.x * W, y = q.y * H;
+    const s = U * .085, x = q.x * W, y = q.y * H;
     ctx.font = cssFont('Poppins', s * .45, 900);
     const tw = ctx.measureText(q.text || '').width;
     const bw = tw + s * 2.2, bh = s * 1.5;
@@ -448,7 +635,7 @@ const DRAW = {
 
   notif(ctx, it, t, W, H) {
     const q = it.p, { a, b } = inOut(t, it, .4, .35);
-    const bw = W * .9, bh = W * .2, x = (W - bw) / 2;
+    const bw = Math.min(W * .9, U * .95), bh = U * .2, x = (W - bw) / 2;
     const y = q.y * H - (1 - easeOut(Math.min(a, b))) * (bh + q.y * H + 20);
     ctx.fillStyle = 'rgba(245,245,247,.96)'; roundRect(ctx, x, y, bw, bh, bh * .22); ctx.fill();
     const ic = bh * .42;
@@ -464,7 +651,7 @@ const DRAW = {
 
   swipe(ctx, it, t, W, H) {
     const q = it.p, { a, b, local } = inOut(t, it, .3);
-    const s = W * .06, x = q.x * W, y = q.y * H;
+    const s = U * .06, x = q.x * W, y = q.y * H;
     ctx.globalAlpha = Math.min(a, b);
     ctx.strokeStyle = q.color || '#fff'; ctx.lineWidth = s * .22; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
     for (let i = 0; i < 3; i++) {
@@ -483,8 +670,8 @@ const DRAW = {
 
   comment(ctx, it, t, W, H) {
     const q = it.p, { a, b } = inOut(t, it, .35);
-    const bw = W * .84, x = q.x * W - bw / 2, y = q.y * H;
-    const fs = W * .04;
+    const bw = U * .84, x = q.x * W - bw / 2, y = q.y * H;
+    const fs = U * .04;
     ctx.font = cssFont('Poppins', fs, 400);
     const lines = wrap(ctx, q.text || '', bw - fs * 6);
     const bh = fs * 2.6 + lines.length * fs * 1.3;
@@ -505,8 +692,8 @@ const DRAW = {
 
   poll(ctx, it, t, W, H) {
     const q = it.p, { a, b, local } = inOut(t, it, .35);
-    const bw = W * .78, x = q.x * W - bw / 2, y = q.y * H;
-    const fs = W * .05;
+    const bw = U * .78, x = q.x * W - bw / 2, y = q.y * H;
+    const fs = U * .05;
     const bh = fs * 6.4;
     ctx.globalAlpha = b; ctx.translate(q.x * W, y + bh / 2); ctx.scale(.5 + .5 * easeOutBack(a), .5 + .5 * easeOutBack(a)); ctx.translate(-q.x * W, -(y + bh / 2));
     ctx.fillStyle = '#fff'; roundRect(ctx, x, y, bw, bh, fs * .6); ctx.fill();
@@ -527,7 +714,7 @@ const DRAW = {
 
   arrows(ctx, it, t, W, H) {
     const q = it.p, { a, b, local } = inOut(t, it, .25);
-    const s = W * .06, x = q.x * W, y = q.y * H;
+    const s = U * .06, x = q.x * W, y = q.y * H;
     const ang = { baixo: Math.PI / 2, cima: -Math.PI / 2, esquerda: Math.PI, direita: 0 }[q.dir || 'baixo'];
     ctx.globalAlpha = Math.min(a, b); ctx.translate(x, y); ctx.rotate(ang);
     ctx.lineCap = 'round'; ctx.lineJoin = 'round';
@@ -544,7 +731,7 @@ const DRAW = {
 
   share(ctx, it, t, W, H) {
     const q = it.p, { a, b, local } = inOut(t, it, .3);
-    const s = W * .08, x = q.x * W, y = q.y * H;
+    const s = U * .08, x = q.x * W, y = q.y * H;
     const pulse = 1 + .08 * Math.max(0, Math.sin(local * 5));
     ctx.globalAlpha = b; ctx.translate(x, y); ctx.scale((.4 + .6 * easeOutBack(a)) * pulse, (.4 + .6 * easeOutBack(a)) * pulse);
     // seta curva de compartilhar
@@ -562,7 +749,7 @@ const DRAW = {
 
   emoji(ctx, it, t, W, H) {
     const q = it.p, { a, b, local } = inOut(t, it, .3);
-    const size = W * (q.size || .18);
+    const size = U * (q.size || .18);
     let sc = .3 + .7 * easeOutBack(a), dy = 0;
     if (q.anim === 'bounce') dy = -Math.abs(Math.sin(local * 6)) * size * .2;
     ctx.globalAlpha = b; ctx.translate(q.x * W, q.y * H + dy); ctx.scale(sc, sc);
@@ -573,7 +760,7 @@ const DRAW = {
 
   arrow(ctx, it, t, W, H) {
     const q = it.p, { a, b, local } = inOut(t, it, .35);
-    const L = W * (q.size || .25);
+    const L = U * (q.size || .25);
     const k = easeOut(a);
     const wob = Math.sin(local * 8) * L * .04;
     ctx.globalAlpha = b; ctx.translate(q.x * W, q.y * H); ctx.rotate((q.rot || 0) * Math.PI / 180);
@@ -589,7 +776,7 @@ const DRAW = {
 
   circle(ctx, it, t, W, H) {
     const q = it.p, { a, b } = inOut(t, it, .45);
-    const r = W * (q.r || .18);
+    const r = U * (q.r || .18);
     const k = easeOut(a);
     ctx.globalAlpha = b; ctx.lineCap = 'round';
     for (const [col, lw] of [['#000', r * .13], [q.color || '#FF2B2B', r * .08]]) {
@@ -632,10 +819,49 @@ const DRAW = {
     else if (q.anim === 'fade') al = a;
     ctx.globalAlpha = (q.opacity ?? 1) * al * b;
     ctx.translate(q.x * W, q.y * H); ctx.scale(sc, sc);
-    ctx.drawImage(img, -w / 2, -h / 2, w, h);
+    if (q.kb) {
+      const k = 1 + 0.12 * clamp01((t - it.start) / it.dur);
+      ctx.save(); ctx.beginPath(); ctx.rect(-w / 2, -h / 2, w, h); ctx.clip();
+      ctx.drawImage(img, -w * k / 2, -h * k / 2, w * k, h * k); ctx.restore();
+    } else ctx.drawImage(img, -w / 2, -h / 2, w, h);
+    if (q.credit) {
+      const fs = Math.max(10, U * .022); ctx.font = cssFont('Poppins', fs, 600);
+      const tw = ctx.measureText(q.credit).width;
+      ctx.fillStyle = 'rgba(0,0,0,.6)'; ctx.fillRect(w / 2 - tw - fs * .8, h / 2 - fs * 1.5, tw + fs * .8, fs * 1.5);
+      ctx.fillStyle = '#fff'; ctx.textAlign = 'right'; ctx.textBaseline = 'middle'; ctx.fillText(q.credit, w / 2 - fs * .4, h / 2 - fs * .75);
+    }
     return { x: q.x * W - w / 2, y: q.y * H - h / 2, w, h };
   },
 };
+
+let _br = null;
+function brazilPaths() {
+  if (!_br) _br = (BRAZIL.locations || []).map(l => [l.id, new Path2D(l.path)]);
+  return _br;
+}
+
+function mix(c1, c2, k) {
+  const p = c => { const m = /^#?([0-9a-f]{6})$/i.exec(c); if (!m) return [120, 120, 120]; const n = parseInt(m[1], 16); return [(n >> 16) & 255, (n >> 8) & 255, n & 255]; };
+  const a = p(c1), b = p(c2);
+  return `rgb(${a.map((v, i) => Math.round(v + (b[i] - v) * k)).join(',')})`;
+}
+
+function floatersDraw(ctx, W, H, local, amount, color, n) {
+  ctx.save();
+  for (let i = 0; i < n; i++) {
+    const r1 = hash(i * 1.7), r2 = hash(i * 3.3), r3 = hash(i * 5.9);
+    const R = U * (.03 + r3 * .1);
+    const x = ((r1 + local * (.02 + r2 * .03)) % 1.2 - .1) * W, y = ((r2 + Math.sin(local * .5 + i) * .03 + 1 - (local * (.01 + r1 * .02)) % 1.2)) % 1.2 * H;
+    ctx.globalAlpha = (.05 + .08 * r3) * amount * 2;
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    if (i % 3 === 0) ctx.arc(x, y, R, 0, Math.PI * 2);
+    else if (i % 3 === 1) { ctx.translate(x, y); ctx.rotate(local * .3 + i); roundRect(ctx, -R, -R, R * 2, R * 2, R * .3); ctx.setTransform(1, 0, 0, 1, 0, 0); }
+    else { ctx.lineWidth = R * .15; ctx.strokeStyle = color; ctx.arc(x, y, R, 0, Math.PI * 2); ctx.stroke(); continue; }
+    ctx.fill();
+  }
+  ctx.restore();
+}
 
 function heart(ctx, x, y, s, color, outline) {
   ctx.save(); ctx.translate(x, y); ctx.beginPath();
@@ -656,7 +882,7 @@ function confetti(ctx, W, H, local, seed) {
     const y = (life - .1) * H * 1.1;
     ctx.save(); ctx.translate(x, y); ctx.rotate(local * (2 + r3 * 6) + i);
     ctx.fillStyle = cols[i % cols.length];
-    const s = W * (.012 + r3 * .01);
+    const s = U * (.012 + r3 * .01);
     ctx.fillRect(-s / 2, -s / 4, s, s * Math.abs(Math.cos(local * 5 + i)) * .6 + s * .1);
     ctx.restore();
   }

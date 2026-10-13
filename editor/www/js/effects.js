@@ -337,6 +337,18 @@ vec4 f(vec2 uv){ float k=floor(uv.y*3.); float ly=fract(uv.y*3.); vec2 q=vec2(uv
   { id:'split2', name:'Tela dividida', group:'Estilo', def:{i:1}, sfx:null, glsl:`
 vec4 f(vec2 uv){ float ly=fract(uv.y*2.); vec4 c=A(vec2(uv.x,(ly-.5)*.5+.5)); float line=smoothstep(.006,0.,abs(uv.y-.5)); return vec4(mix(c.rgb,vec3(1),line),1.); }` },
 
+  { id:'splitElastic', name:'Tela dividida elástica', group:'Estilo', def:{i:1}, sfx:'whoosh', glsl:`
+vec4 f(vec2 uv){ float div=.5+sin(uT*3.)*.08*uI*exp(-uP*1.5)+ (1.-easeOut(clamp(uP*3.,0.,1.)))*.5;
+  float w=.006; vec4 c;
+  if(uv.y>div){ float ly=(uv.y-div)/(1.-div); c=A(vec2(uv.x,(ly-.5)*(1.-div)+.5+.15)); }
+  else { float ly=uv.y/div; c=A(vec2(1.-uv.x,(ly-.5)*div+.5-.15)); c.rgb=vec3(luma(c.rgb))*vec3(1.,.95,.9); }
+  return vec4(mix(c.rgb,vec3(1),smoothstep(w,0.,abs(uv.y-div))),1.); }` },
+
+  { id:'parallax', name:'Parallax (profundidade)', group:'Movimento', def:{i:.6}, sfx:null, glsl:`
+vec4 f(vec2 uv){ vec2 p=toP(uv); float r=length(p); float depth=1.-smoothstep(0.,.75,r);
+  float z=1.+uI*.18*uP*(.3+.7*depth); vec2 pan=vec2(sin(uP*1.6)*.03*uI*(1.-depth),0.);
+  return A(fromP(p/z)+pan); }` },
+
   { id:'echo', name:'Rastro', group:'Estilo', def:{i:.7}, sfx:null, usesPrev:true, glsl:`
 vec4 f(vec2 uv){ vec4 c=A(uv); vec4 p=texture(uPrev,uv); return vec4(max(c.rgb,p.rgb*(.55+.4*uI)),1.); }` },
 

@@ -24,7 +24,7 @@ function tx(store, mode, fn) {
     const s = t.objectStore(store);
     let out;
     Promise.resolve(fn(s)).then(v => { out = v; });
-    t.oncomplete = () => res(out && out.result !== undefined ? out.result : out);
+    t.oncomplete = () => res(out instanceof IDBRequest ? out.result : out);
     t.onerror = () => rej(t.error);
     t.onabort = () => rej(t.error || new Error('Sem espaço para salvar'));
   }));
@@ -43,7 +43,7 @@ export const store = {
     const others = await this.listProjects();
     const used = new Set(others.flatMap(o => Object.keys(o.media || {})));
     for (const mid of Object.keys(p.media || {})) {
-      if (!used.has(mid)) { await tx('media', 'readwrite', s => s.delete(mid)); await tx('aux', 'readwrite', s => s.delete(mid)); }
+      if (!used.has(mid)) { await tx('media', 'readwrite', s => s.delete(mid)); await tx('media', 'readwrite', s => s.delete(mid + '_px')); await tx('aux', 'readwrite', s => s.delete(mid)); }
     }
   },
   putMedia: (mid, blob) => tx('media', 'readwrite', s => s.put(blob, mid)),

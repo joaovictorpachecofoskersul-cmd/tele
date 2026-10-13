@@ -157,7 +157,7 @@ export function elementsPanel(app) {
   app.openSheet('Elementos', h('div', {}, h('p', { class: 'hint' }, 'O elemento entra na posição do cursor. Depois você arrasta na prévia e ajusta a duração na linha do tempo.'), grid));
 }
 
-const ICON = { like: '♥', click: '↖', tap: '☝', bell: '🔔', notif: '▭', swipe: '⌃', comment: '💬', poll: '▤', arrows: '»', share: '↪', text: '𝐓', stamp: '⛝', counter: '#', censor: '▬', knockout: '◩', card: '▣', emoji: '☺', arrow: '➜', circle: '◯', confetti: '✺', progress: '▭', image: '🖼', lower: '▤', follow: '♥', bubble: '💬' };
+const ICON = { pill: '⬭', checklist: '☑', people: '👥', map: '🗺', bars: '▥', module: '▣', floaters: '◌', blurbox: '▒', like: '♥', click: '↖', tap: '☝', bell: '🔔', notif: '▭', swipe: '⌃', comment: '💬', poll: '▤', arrows: '»', share: '↪', text: '𝐓', stamp: '⛝', counter: '#', censor: '▬', knockout: '◩', card: '▣', emoji: '☺', arrow: '➜', circle: '◯', confetti: '✺', progress: '▭', image: '🖼', lower: '▤', follow: '♥', bubble: '💬' };
 
 // ------------------------------------------------------------------ editor de item
 export function itemPanel(app, it) {
@@ -225,6 +225,45 @@ export function itemPanel(app, it) {
       body.append(field('Texto', 'text', true), slider('Tamanho', 0.03, 0.12, 0.002, q.size, v => { q.size = v; live(); }, v => Math.round(v * 100), commit),
         section('Ponta', chips([{ id: 'baixo', name: 'Embaixo' }, { id: 'cima', name: 'Em cima' }], q.tail, v => { q.tail = v; commit(); })));
       break;
+    case 'pill':
+      body.append(field('Texto', 'text'), slider('Tamanho', 0.025, 0.1, 0.001, q.size, v => { q.size = v; live(); }, v => Math.round(v * 1000), commit),
+        section('Fundo', swatches(q.bg, v => { q.bg = v; commit(); })), section('Texto', swatches(q.color, v => { q.color = v; commit(); })));
+      break;
+    case 'checklist':
+      body.append(field('Itens (um por linha)', 'text', true),
+        slider('Tamanho', 0.03, 0.09, 0.001, q.size, v => { q.size = v; live(); }, v => Math.round(v * 1000), commit),
+        section('Cor do check', swatches(q.check, v => { q.check = v; commit(); })),
+        section('Fundo', swatches(q.box, v => { q.box = v; commit(); }, { none: true, colors: ['rgba(0,0,0,.55)', '#000000', '#173B32', '#1E293B', '#FFFFFF'] })),
+        h('p', { class: 'hint' }, 'Os itens aparecem apagados e acendem um por vez ao longo da duração do elemento.'));
+      break;
+    case 'people':
+      body.append(h('div', { class: 'nrow' }, numInput('Total de pessoas', q.total, v => { q.total = Math.max(1, Math.min(50, Math.round(v))); live(); }, commit), numInput('Em destaque', q.hi, v => { q.hi = Math.max(0, Math.round(v)); live(); }, commit)),
+        field('Texto embaixo', 'label'), section('Cor do destaque', swatches(q.color, v => { q.color = v; commit(); })));
+      break;
+    case 'map':
+      body.append(h('div', {}, h('div', { class: 'sec-t' }, 'Estados em destaque (siglas: MT, BA, SP...)'), textInput(q.states, v => { q.states = v; live(); }, { onCommit: commit })),
+        field('Texto embaixo', 'label'),
+        slider('Tamanho', 0.3, 1, 0.01, q.size, v => { q.size = v; live(); }, pct, commit),
+        section('Cor do destaque', swatches(q.color, v => { q.color = v; commit(); })),
+        h('p', { class: 'hint' }, 'Mapa: @svg-maps (licença CC BY 4.0). O crédito já aparece no canto.'));
+      break;
+    case 'bars':
+      body.append(field('Título', 'title'), field('Dados (um por linha, "Nome: valor")', 'text', true), section('Cor das barras', swatches(q.color, v => { q.color = v; commit(); })));
+      break;
+    case 'module':
+      body.append(field('Número / etiqueta', 'num'), field('Título', 'title', true),
+        section('Fundo', swatches(q.bg, v => { q.bg = v; commit(); }, { colors: ['#173B32', '#111111', '#1E3A8A', '#7C2D12', '#4C1D95', '#E1251B', '#FFFFFF'] })),
+        section('Destaque', swatches(q.accent, v => { q.accent = v; commit(); })));
+      break;
+    case 'floaters':
+      body.append(slider('Quantidade', 0.1, 1, 0.05, q.amount ?? .5, v => { q.amount = v; live(); }, pct, commit), section('Cor', swatches(q.color, v => { q.color = v; commit(); })));
+      break;
+    case 'blurbox':
+      body.append(section('Tipo', chips([{ id: 'blur', name: 'Desfocar' }, { id: 'pixel', name: 'Pixelizar' }], q.mode, v => { q.mode = v; commit(); })),
+        slider('Largura', 0.05, 1, 0.005, q.w, v => { q.w = v; live(); }, pct, commit),
+        slider('Altura', 0.02, 1, 0.005, q.h, v => { q.h = v; live(); }, pct, commit),
+        h('p', { class: 'hint' }, 'Use para esconder uma legenda antiga gravada no vídeo, uma placa ou um rosto. Arraste na prévia para posicionar.'));
+      break;
     case 'like':
       body.append(field('Número embaixo (opcional)', 'count'), section('Cor', swatches(q.color, v => { q.color = v; commit(); })));
       break;
@@ -274,6 +313,8 @@ export function itemPanel(app, it) {
       body.append(slider('Tamanho', 0.05, 1, 0.005, q.scale, v => { q.scale = v; live(); }, pct, commit),
         slider('Transparência', 0.1, 1, 0.01, q.opacity ?? 1, v => { q.opacity = v; live(); }, pct, commit),
         section('Animação', chips([{ id: 'pop', name: 'Pular' }, { id: 'fade', name: 'Aparecer' }, { id: 'none', name: 'Nenhuma' }], q.anim, v => { q.anim = v; commit(); })),
+        toggle('Zoom lento (Ken Burns)', q.kb, v => { q.kb = v; commit(); }),
+        field('Crédito (ex.: Foto: Autor, CC BY 4.0)', 'credit'),
         btn('Trocar imagem', async () => { const mid = await app.importImageForItem(); if (mid) { q.mid = mid; commit(); } }));
       break;
     case 'effect': {
@@ -282,6 +323,14 @@ export function itemPanel(app, it) {
         slider('Intensidade', 0, 1, 0.01, q.i ?? (fx ? fx.def.i : 0.7), v => { q.i = v; live(); }, pct, commit));
       if (q.fx === 'pulse') body.append(slider('Batidas por minuto', 60, 180, 1, q.bpm || 126, v => { q.bpm = v; live(); }, v => v, commit));
       body.append(section('Trocar por', fxGrid(EFFECTS, id => { q.fx = id; q.i = FX_BY_ID[id].def.i; commit(); itemPanel(app, it); })));
+      break;
+    }
+    case 'audio': {
+      const m = app.project.media[q.mid] || {};
+      body.append(h('p', {}, '🎙 ' + (m.name || 'Narração')),
+        slider('Volume', 0, 2, 0.05, q.vol ?? 1, v => { q.vol = v; }, pct, commit),
+        h('p', { class: 'hint' }, 'Arraste o bloco na linha do tempo para mudar onde começa; use as alças para cortar o começo ou o fim.'),
+        !(app.project.transcripts[q.mid] || []).length ? btn('Gerar legenda desta narração', async () => { app.closeSheet(); await app.transcribeAll(); }) : null);
       break;
     }
     case 'sfx':
@@ -295,7 +344,7 @@ export function itemPanel(app, it) {
   if (ELEMENT_SFX[it.kind]) body.append(toggle('Som automático deste elemento', q.sound !== false, v => { q.sound = v; commit(); }));
 
   // tempo
-  const isSfx = it.kind === 'sfx';
+  const isSfx = it.kind === 'sfx' || it.kind === 'audio';
   body.append(section('Tempo',
     h('div', { class: 'brow' },
       btn('⇤ Começar no cursor', () => { app.moveItem(it, app.time); app.commit(); }),
@@ -347,6 +396,12 @@ export function audioPanel(app) {
           slider('Começar a música em', 0, Math.max(1, app.project.media[mu.mid].dur - 1), 0.5, mu.start || 0, v => { mu.start = v; }, v => fmtTime(v), () => app.commit()),
         ) : btn('+ Escolher música do celular', async () => { await app.importMusic(); draw(); }, 'pri'),
         toggle('Abaixar a música quando alguém fala', a.duck, v => { a.duck = v; app.commit(); }),
+      ),
+      section('Narração',
+        h('div', { class: 'brow' },
+          btn('🎙 Gravar narração', () => { app.closeSheet(); app.recordNarration(); }, 'pri'),
+          btn('＋ Áudio do celular', async () => { await app.addNarrationFile(); draw(); })),
+        h('p', { class: 'hint' }, 'A narração entra no cursor. Na gravação, o vídeo toca sem som para você acompanhar. Depois dá para gerar legenda dela em Legendas.'),
       ),
       section('Batida automática',
         toggle('Ligar batida', a.beat.on, v => { a.beat.on = v; app.commit(); draw(); }),
@@ -445,4 +500,104 @@ export function exportPanel(app) {
     h('p', { class: 'hint' }, 'A exportação acontece no próprio celular. Deixe o app aberto e a tela ligada até terminar.'),
     btn('Exportar vídeo', () => { app.closeSheet(); app.runExport(q); }, 'pri big'));
   app.openSheet('Exportar', body);
+}
+
+// ------------------------------------------------------------------ modelos
+import { TEMPLATES, applyTemplate } from './templates.js';
+import { Renderer } from './render.js';
+import { newProject, newClip, dims as dimsOf } from './project.js';
+
+let tplRenderer = null;
+
+async function stillOf(app) {
+  const p = app.project, c = p.clips[0];
+  if (!c) return null;
+  const m = p.media[c.mid];
+  try {
+    if (m.kind === 'image') return await app.preview.image(c.mid);
+    const v = document.createElement('video');
+    v.muted = true; v.playsInline = true; v.preload = 'auto'; v.src = app.previewUrlOf(c.mid);
+    await new Promise((res, rej) => { v.onloadeddata = res; v.onerror = rej; setTimeout(rej, 8000); });
+    v.currentTime = Math.min(m.dur - 0.1, (c.in + c.out) / 2);
+    await new Promise((res, rej) => { v.onseeked = res; setTimeout(rej, 8000); });
+    const b = await createImageBitmap(v);
+    v.removeAttribute('src'); v.load();
+    return b;
+  } catch (e) { return null; }
+}
+
+async function renderTemplatePreview(tpl, still, opt) {
+  const p = newProject('prévia');
+  const w = still ? still.width : 720, h = still ? still.height : 1280;
+  p.media.still = { id: 'still', kind: 'image', dur: 4, w, h, hasAudio: false };
+  const a = newClip(p.media.still, { dur: 4 }); a.kb = false;
+  const b = newClip(p.media.still, { dur: 4 }); b.kb = false;
+  p.clips = [a, b];
+  p.transcripts.still = 'assim fica a sua legenda no vídeo com este modelo'.split(' ').map((x, i) => ({ w: x, s: 2.6 + i * 0.3, e: 2.6 + i * 0.3 + 0.27 }));
+  applyTemplate(p, tpl, { ...opt, title: opt.title || 'SEU TÍTULO', handle: opt.handle || '@seuperfil' });
+  const [W, H] = dimsOf(p);
+  const k = 200 / Math.max(W, H);
+  if (!tplRenderer) { const c = document.createElement('canvas'); tplRenderer = new Renderer(c); }
+  tplRenderer.setSize(Math.round(W * k), Math.round(H * k));
+  const fallback = document.createElement('canvas'); fallback.width = 9; fallback.height = 16;
+  const fx = fallback.getContext('2d'); const g = fx.createLinearGradient(0, 0, 9, 16); g.addColorStop(0, '#334155'); g.addColorStop(1, '#0f766e'); fx.fillStyle = g; fx.fillRect(0, 0, 9, 16);
+  const src = still || fallback;
+  await tplRenderer.render(p, 3.4, { frame: () => ({ source: src, w, h }) }, { capVersion: Math.random() });
+  const out = document.createElement('canvas');
+  out.width = tplRenderer.out.width; out.height = tplRenderer.out.height;
+  out.getContext('2d').drawImage(tplRenderer.out, 0, 0);
+  return out;
+}
+
+export function templatesPanel(app, afterImport = false) {
+  const p = app.project;
+  let store = {};
+  try { store = JSON.parse(localStorage.getItem('ed.tpl') || '{}'); } catch (e) { }
+  const opt = { title: '', handle: store.handle || '', intro: true, outro: true, trans: true, music: true };
+  let chosen = p.template || null;
+  const grid = h('div', { class: 'tgrid' });
+  const cards = new Map();
+  for (const t of TEMPLATES) {
+    const thumb = h('div', { class: 'tthumb', style: { background: `linear-gradient(135deg, ${t.colors[0]}, ${t.colors[1]})`, aspectRatio: t.format.replace(':', '/') } });
+    const card = h('button', { class: 'tcard' + (chosen === t.id ? ' on' : ''), type: 'button' }, thumb, h('b', {}, t.name), h('span', {}, t.desc));
+    card.addEventListener('click', () => { chosen = t.id; for (const [id, c] of cards) c.classList.toggle('on', id === t.id); applyBtn.disabled = false; });
+    cards.set(t.id, card);
+    grid.append(card);
+  }
+  const applyBtn = btn('Aplicar modelo', async () => {
+    const t = TEMPLATES.find(x => x.id === chosen);
+    if (!t) return;
+    try { localStorage.setItem('ed.tpl', JSON.stringify({ handle: opt.handle })); } catch (e) { }
+    applyTemplate(p, t, opt);
+    app.applyFormat();
+    app.commit();
+    app.closeSheet();
+    app.setTime(0);
+    toast('Modelo "' + t.name + '" aplicado. Dá para mudar qualquer coisa depois.', 3500);
+    if (app.mediaNeedingTranscript().length && await confirmBox('Gerar a legenda automática agora? O app escuta a fala e escreve sozinho.', 'Gerar legenda')) app.transcribeAll();
+  }, 'pri big');
+  applyBtn.disabled = !chosen;
+  const body = h('div', {},
+    afterImport ? h('p', { class: 'hint' }, 'Escolha um modelo para começar já com tudo pronto, ou toque em OK para editar do zero.') : null,
+    h('div', { class: 'nrow' },
+      h('div', {}, h('div', { class: 'sec-t' }, 'Título do vídeo (opcional)'), textInput('', v => { opt.title = v; }, { placeholder: 'Ex.: 3 dicas de saúde' })),
+      h('div', {}, h('div', { class: 'sec-t' }, 'Seu @ (opcional)'), textInput(opt.handle, v => { opt.handle = v; }, { placeholder: '@seuperfil' }))),
+    h('div', { class: 'tgl2' },
+      toggle('Abertura e final', true, v => { opt.intro = v; opt.outro = v; }),
+      toggle('Transições', true, v => { opt.trans = v; }),
+      toggle('Batida / trilha', true, v => { opt.music = v; })),
+    grid, applyBtn);
+  app.openSheet('Modelos', body);
+  // prévias com um quadro do próprio vídeo
+  (async () => {
+    const still = await stillOf(app);
+    for (const t of TEMPLATES) {
+      if (!document.body.contains(grid)) return;
+      try {
+        const c = await renderTemplatePreview(t, still, opt);
+        const th = cards.get(t.id).querySelector('.tthumb');
+        th.style.background = '#000'; th.innerHTML = ''; th.append(c);
+      } catch (e) { console.warn('prévia do modelo', t.id, e); }
+    }
+  })();
 }

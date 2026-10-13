@@ -8,6 +8,7 @@ mkdir -p www/vendor/ort www/fonts
 cp $NM/mediabunny/dist/bundles/mediabunny.min.mjs www/vendor/
 cp $NM/@huggingface/transformers/dist/transformers.min.js www/vendor/
 cp $NM/onnxruntime-web/dist/ort-wasm-simd-threaded.asyncify.wasm $NM/onnxruntime-web/dist/ort-wasm-simd-threaded.asyncify.mjs www/vendor/ort/
+cp $NM/@svg-maps/brazil/index.js www/vendor/brazil-map.js   # mapa do Brasil, @svg-maps (CC BY 4.0)
 for f in poppins/files/poppins-latin-400-normal poppins/files/poppins-latin-600-normal poppins/files/poppins-latin-700-normal \
          poppins/files/poppins-latin-800-normal poppins/files/poppins-latin-900-normal poppins/files/poppins-latin-ext-700-normal \
          poppins/files/poppins-latin-ext-900-normal anton/files/anton-latin-400-normal bebas-neue/files/bebas-neue-latin-400-normal \

@@ -157,6 +157,16 @@ textarea.ti{resize:vertical;min-height:52px}
 .mrow{display:flex;justify-content:flex-end;gap:6px;margin-top:12px}
 #toast{position:fixed;left:50%;bottom:calc(var(--toolh) + 20px);transform:translateX(-50%);background:rgba(39,39,42,.97);padding:10px 16px;border-radius:12px;font-size:13px;z-index:60;opacity:0;transition:opacity .2s;pointer-events:none;max-width:90vw;text-align:center;line-height:1.4}
 #toast.show{opacity:1}
+.recclock{font-size:40px;font-weight:800;font-variant-numeric:tabular-nums;margin:6px 0 12px}
+.recdot{width:18px;height:18px;border-radius:50%;background:var(--red);margin:0 auto 10px;animation:ind 1s infinite alternate}
+.tgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px;margin:10px 0}
+.tcard{display:flex;flex-direction:column;gap:4px;text-align:left;background:var(--panel2);border-radius:12px;padding:8px;border:2px solid transparent}
+.tcard.on{border-color:var(--acc)}
+.tcard b{font-size:13px}
+.tcard span{font-size:11px;color:var(--muted);line-height:1.35}
+.tthumb{width:100%;max-height:200px;border-radius:8px;overflow:hidden;display:grid;place-items:center}
+.tthumb canvas{max-width:100%;max-height:200px;display:block}
+.tgl2 .tg{padding:7px 0}
 .fatal{color:#fca5a5;padding:20px;white-space:pre-wrap}
 @media (min-height:820px){:root{--tlh:200px}}
 </style>

@@ -7,7 +7,7 @@ import { SFX_LIST } from './audio.js';
 
 const KIND_LABEL = Object.fromEntries(ELEMENTS.map(e => [e.kind, e.name]));
 KIND_LABEL.text = 'Texto'; KIND_LABEL.effect = 'Efeito'; KIND_LABEL.sfx = 'Som';
-const KIND_COLOR = { text: '#7C3AED', effect: '#DB2777', sfx: '#16A34A', card: '#EA580C', image: '#0891B2' };
+const KIND_COLOR = { audio: '#0F766E', text: '#7C3AED', effect: '#DB2777', sfx: '#16A34A', card: '#EA580C', image: '#0891B2' };
 
 export class Timeline {
   constructor(root, app) {
@@ -15,10 +15,24 @@ export class Timeline {
     this.pps = 70;                       // pixels por segundo
     this.inner = h('div', { class: 'tl-in' });
     root.append(this.inner);
-    this.lock = false;
+    // Só conta como "arrastar a linha do tempo" a rolagem feita pelo dedo.
+    // A rolagem que o app faz para acompanhar a reprodução é ignorada.
+    this.touching = false; this.userUntil = 0; this.expected = null;
+    const start = () => { this.touching = true; };
+    const end = () => { this.touching = false; this.userUntil = performance.now() + 700; };
+    root.addEventListener('touchstart', start, { passive: true });
+    root.addEventListener('pointerdown', start, { passive: true });
+    root.addEventListener('touchend', end, { passive: true });
+    root.addEventListener('touchcancel', end, { passive: true });
+    root.addEventListener('pointerup', end, { passive: true });
+    root.addEventListener('wheel', () => { this.userUntil = performance.now() + 300; }, { passive: true });
     root.addEventListener('scroll', () => {
-      if (this.lock) return;
-      this.app.scrub(this.root.scrollLeft / this.pps);
+      const sl = this.root.scrollLeft;
+      if (this.expected != null && Math.abs(sl - this.expected) < 1.5) return;
+      const now = performance.now();
+      if (!this.touching && now > this.userUntil) return;
+      if (!this.touching) this.userUntil = now + 200;   // rolagem por inércia depois de soltar
+      this.app.scrub(sl / this.pps);
     }, { passive: true });
     this._pinch();
   }
@@ -47,9 +61,8 @@ export class Timeline {
   zoom(k) { const t = this.app.time; this.pps = clamp(this.pps * k, 8, 400); this.build(); this.scrollTo(t); }
 
   scrollTo(t) {
-    this.lock = true;
     this.root.scrollLeft = t * this.pps;
-    clearTimeout(this._lt); this._lt = setTimeout(() => { this.lock = false; }, 60);
+    this.expected = this.root.scrollLeft;
   }
 
   x(t) { return this.pad + t * this.pps; }
@@ -127,7 +140,7 @@ export class Timeline {
     }
 
     // itens (textos, elementos, efeitos)
-    const items = p.items.filter(it => it.kind !== 'sfx');
+    const items = p.items.filter(it => it.kind !== 'sfx' && it.kind !== 'audio');
     const nl = assignLanes(items);
     for (let lane = 0; lane < nl; lane++) {
       const lr = h('div', { class: 'tl-row lane' });
@@ -146,14 +159,22 @@ export class Timeline {
       el.addEventListener('click', e => { e.stopPropagation(); app.openAudio(); });
       ar.append(el);
     }
+    this.inner.append(ar);
+    const nar = p.items.filter(x => x.kind === 'audio');
+    if (nar.length) {
+      const nr = h('div', { class: 'tl-row lane' });
+      for (const it of nar) nr.append(this._itemBlock(it));
+      this.inner.append(nr);
+    }
+    const sr = h('div', { class: 'tl-row audio' });
     for (const it of p.items.filter(x => x.kind === 'sfx')) {
       const name = (SFX_LIST.find(s => s.id === it.p.type) || {}).name || 'Som';
       const el = h('div', { class: 'sfx' + (sel.type === 'item' && sel.id === it.id ? ' sel' : ''), style: { left: (this.x(it.start) - 2) + 'px' } }, '◆ ' + name);
       this._dragMove(el, it, () => { el.style.left = (this.x(it.start) - 2) + 'px'; });
       el.addEventListener('click', e => { e.stopPropagation(); if (!el._dragged) app.select({ type: 'item', id: it.id }); el._dragged = false; });
-      ar.append(el);
+      sr.append(el);
     }
-    this.inner.append(ar);
+    if (sr.childNodes.length) this.inner.append(sr);
 
     this.inner.onclick = () => app.select(null);
   }
@@ -164,6 +185,7 @@ export class Timeline {
     let label = KIND_LABEL[it.kind] || it.kind;
     if (it.kind === 'text') label = '𝐓 ' + (it.p.text || '').slice(0, 24);
     if (it.kind === 'effect') label = '✦ ' + ((FX_BY_ID[it.p.fx] || {}).name || 'Efeito');
+    if (it.kind === 'audio') label = '🎙 ' + (((this.app.project.media[it.p.mid] || {}).name) || 'Narração');
     if (it.kind === 'stamp' || it.kind === 'knockout') label = (KIND_LABEL[it.kind]) + ': ' + (it.p.text || '');
     const el = h('div', { class: 'blk' + (isSel ? ' sel' : ''), style: { left: this.x(it.start) + 'px', width: Math.max(6, it.dur * pps - 1) + 'px', background: KIND_COLOR[it.kind] || '#475569' } }, h('span', {}, label));
     el.addEventListener('click', e => { e.stopPropagation(); if (!el._dragged) app.select({ type: 'item', id: it.id }); el._dragged = false; });

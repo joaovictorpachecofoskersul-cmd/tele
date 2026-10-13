@@ -9,6 +9,7 @@ import { probe, thumbnails, imageThumb, decodeMono16k, envFrom16k, kindOf } from
 import { speechRanges } from './audio.js';
 import { transcribe } from './asr.js';
 import { exportVideo } from './export.js';
+import { needsProxy, makeProxy } from './proxy.js';
 import * as P from './panels.js';
 import { h, $, toast, confirmBox, promptBox, btn } from './ui.js';
 
@@ -48,8 +49,10 @@ async function showHome() {
   app.preview.releaseAll();
   if (app.project) await saveNow();
   app.project = null;
+  if (optCtl && optCtl.cancel) { try { optCtl.cancel(); } catch (e) { } }
   for (const u of app.urls.values()) URL.revokeObjectURL(u);
-  app.urls.clear(); app.blobs.clear(); app.mono.clear();
+  for (const u of app.proxyUrls.values()) URL.revokeObjectURL(u);
+  app.urls.clear(); app.blobs.clear(); app.mono.clear(); app.proxyUrls.clear();
   $('#editor').hidden = true; $('#home').hidden = false;
   const list = $('#plist');
   list.innerHTML = '';
@@ -85,7 +88,9 @@ async function openProject(p) {
       const ax = await store.getAux(mid);
       if (ax) app.aux.set(mid, ax);
     }
+    await preloadBlobs();
     for (const it of p.items) if (it.kind === 'image' && it.p.mid) await loadItemImage(it.p.mid);
+    setTimeout(optimizeInBackground, 500);
     $('#home').hidden = true; $('#editor').hidden = false;
     $('#pname').textContent = p.name;
     app.applyFormat();
@@ -102,6 +107,7 @@ async function newProjectFlow() {
   await store.putProject(p);
   await openProject(p);
   await addFiles(files, 'append');
+  if (app.project && app.project.clips.length) P.templatesPanel(app, true);
 }
 
 // ======================================================================= mídia
@@ -132,6 +138,9 @@ app.urlOf = mid => {
   }
   return app.urls.get(mid);
 };
+// prévia usa a cópia otimizada quando existe
+app.proxyUrls = new Map();
+app.previewUrlOf = mid => app.proxyUrls.get(mid) || app.urlOf(mid);
 app.auxOf = mid => app.aux.get(mid);
 app.envOf = mid => { const a = app.aux.get(mid); return a && a.env; };
 
@@ -181,22 +190,47 @@ async function addFiles(files, mode) {
   }
   busyDone();
   app.commit();
-  analyzeAudioInBackground();
+  optimizeInBackground();
 }
 
-let analyzing = false;
-async function analyzeAudioInBackground() {
-  if (analyzing) return;
-  analyzing = true;
+// Cria cópias leves de vídeos pesados (4K, HEVC/HDR, 60 fps) para a prévia não travar.
+let optimizing = false, optCtl = null;
+async function optimizeInBackground() {
+  if (optimizing || !app.project) return;
+  optimizing = true;
+  const p = app.project;
   try {
-    for (const m of Object.values(app.project ? app.project.media : {})) {
-      if (!app.project) break;
-      if (m.kind === 'image' || !m.hasAudio || app.envOf(m.id)) continue;
-      $('#bgtask').textContent = 'Analisando áudio...';
-      try { await ensureEnv(m.id); } catch (e) { }
+    for (const m of Object.values(p.media)) {
+      if (app.project !== p) break;
+      if (m.kind !== 'video' || m.proxy === false || app.proxyUrls.has(m.id)) continue;
+      const px = await store.getMedia(m.id + '_px');
+      if (px) { app.proxyUrls.set(m.id, URL.createObjectURL(px)); app.preview.forgetMedia(m.id); app.requestRender(); continue; }
+      const blob = await app.getBlob(m.id);
+      if (m.proxy !== true && !(await needsProxy(blob, m))) { m.proxy = false; scheduleSave(); continue; }
+      $('#bgtask').textContent = 'Otimizando vídeo para editar: 0%';
+      try {
+        optCtl = {};
+        const out = await makeProxy(blob, m, k => { $('#bgtask').textContent = `Otimizando vídeo para editar: ${Math.round(k * 100)}%`; }, optCtl);
+        if (app.project !== p) break;
+        await store.putMedia(m.id + '_px', out);
+        m.proxy = true; scheduleSave();
+        app.proxyUrls.set(m.id, URL.createObjectURL(out));
+        app.preview.forgetMedia(m.id);
+        app.requestRender();
+      } catch (e) { m.proxy = false; console.warn('proxy', e); }
     }
-  } finally { analyzing = false; $('#bgtask').textContent = ''; }
+  } finally { optimizing = false; optCtl = null; $('#bgtask').textContent = ''; }
 }
+
+app.lowerPreview = () => {
+  const steps = [960, 720, 540];
+  const i = steps.indexOf(app.previewSide || 960);
+  if (i < 0 || i >= steps.length - 1) return false;
+  app.previewSide = steps[i + 1];
+  app.preview.maxSide = app.previewSide;
+  app.applyFormat();
+  return true;
+};
 
 async function ensureEnv(mid, onProgress) {
   const ax = app.aux.get(mid) || {};
@@ -229,6 +263,61 @@ app.importMusic = async () => {
     app.commit();
   } catch (e) { toast('Não consegui abrir a música: ' + e.message, 4000); }
   busyDone();
+};
+
+app.addNarrationFile = async () => {
+  const [f] = await pickFiles('audio/*,video/*', false);
+  if (!f) return;
+  busy({ title: 'Importando áudio', detail: f.name });
+  try {
+    const m = await addMedia(f);
+    m.hasAudio = true;
+    app.addItem('audio', { mid: m.id, vol: 1, in: 0 }, null, m.dur);
+    const it = app.project.items[app.project.items.length - 1];
+    it.dur = m.dur; app.commit();
+    toast('Narração adicionada no cursor');
+  } catch (e) { toast('Não consegui abrir o áudio: ' + e.message, 4000); }
+  busyDone();
+};
+
+// Grava narração pelo microfone enquanto o vídeo toca (sem som, para não vazar no microfone)
+app.recordNarration = async () => {
+  let stream;
+  try { stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: true, autoGainControl: true } }); }
+  catch (e) { toast('Permita o uso do microfone para gravar a narração', 4000); return; }
+  const mime = ['audio/webm;codecs=opus', 'audio/mp4', 'audio/webm', ''].find(m => !m || (window.MediaRecorder && MediaRecorder.isTypeSupported(m)));
+  const rec = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined);
+  const chunks = [];
+  rec.ondataavailable = e => e.data && e.data.size && chunks.push(e.data);
+  const start = app.time;
+  const bg = h('div', { class: 'modal' });
+  const clock = h('div', { class: 'recclock' }, '0:00');
+  const stop = btn('■ Parar', () => rec.stop(), 'pri big');
+  bg.append(h('div', { class: 'mbox', style: { textAlign: 'center' } }, h('div', { class: 'recdot' }), h('p', {}, 'Gravando narração. O vídeo está tocando sem som para você acompanhar.'), clock, stop));
+  document.body.append(bg);
+  const t0 = Date.now();
+  const iv = setInterval(() => { const s = Math.floor((Date.now() - t0) / 1000); clock.textContent = Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0'); }, 250);
+  app.recording = true;
+  rec.onstop = async () => {
+    clearInterval(iv); app.recording = false; app.preview.pause(); bg.remove();
+    stream.getTracks().forEach(t => t.stop());
+    const type = (rec.mimeType || 'audio/webm').split(';')[0];
+    const blob = new Blob(chunks, { type });
+    if (!blob.size) { toast('A gravação ficou vazia'); return; }
+    busy({ title: 'Salvando narração' });
+    try {
+      const f = new File([blob], 'narracao-' + new Date().toLocaleTimeString('pt-BR').replace(/:/g, '') + (type.includes('mp4') ? '.m4a' : '.webm'), { type });
+      const m = await addMedia(f);
+      m.kind = 'audio'; m.hasAudio = true;
+      app.addItem('audio', { mid: m.id, vol: 1, in: 0 }, start, m.dur || (Date.now() - t0) / 1000);
+      toast('Narração gravada');
+    } catch (e) { toast('Erro ao salvar a narração: ' + e.message, 4000); }
+    busyDone();
+    app.setTime(start);
+  };
+  rec.start(500);
+  app.setTime(start);
+  app.preview.play();
 };
 
 app.importImageForItem = async () => {
@@ -341,7 +430,7 @@ function updateClock() {
 
 app.applyFormat = () => {
   const [W, H] = dims(app.project);
-  const k = Math.min(1, 960 / Math.max(W, H));
+  const k = Math.min(1, (app.previewSide || 960) / Math.max(W, H));
   app.renderer.setSize(Math.round(W * k / 2) * 2, Math.round(H * k / 2) * 2);
   fitStage();
   app.requestRender();
@@ -376,11 +465,14 @@ app.moveItem = (it, start) => {
 app.trimItem = (it, side, ds) => {
   const L = layout(app.project);
   if (side === 'start') {
-    const ns = clamp(it.start + ds, 0, it.start + it.dur - 0.1);
+    let ns = clamp(it.start + ds, 0, it.start + it.dur - 0.1);
+    if (it.kind === 'audio') { const a = (it.p.in || 0) + (ns - it.start); if (a < 0) ns -= a; it.p.in = Math.max(0, (it.p.in || 0) + (ns - it.start)); }
     it.dur += it.start - ns; it.start = ns;
     app.time = ns;
   } else {
-    it.dur = clamp(it.dur + ds, 0.1, Math.max(0.1, L.total - it.start));
+    let max = Math.max(0.1, L.total - it.start);
+    if (it.kind === 'audio') { const m = app.project.media[it.p.mid]; if (m) max = Math.max(0.1, m.dur - (it.p.in || 0)); }
+    it.dur = clamp(it.dur + ds, 0.1, max);
     app.time = Math.max(0, it.start + it.dur - 0.02);
   }
   updateClock(); app.live();
@@ -473,8 +565,8 @@ app.cutSilences = async clips => {
 // ======================================================================= legenda
 app.mediaNeedingTranscript = () => {
   const p = app.project;
-  const mids = [...new Set(p.clips.map(c => c.mid))];
-  return mids.filter(mid => { const m = p.media[mid]; return m && m.kind !== 'image' && m.hasAudio && !(p.transcripts[mid] && p.transcripts[mid].length); });
+  const mids = [...new Set([...p.clips.map(c => c.mid), ...p.items.filter(i => i.kind === 'audio').map(i => i.p.mid)])];
+  return mids.filter(mid => { const m = p.media[mid]; return m && m.kind !== 'image' && (m.hasAudio || m.kind === 'audio') && !(p.transcripts[mid] && p.transcripts[mid].length); });
 };
 
 app.transcribeAll = async () => {
@@ -599,6 +691,7 @@ function updateToolbar() {
   } else {
     bar.append(
       tool('＋', 'Mídia', () => app.importFiles('cursor')),
+      tool('▦', 'Modelos', () => P.templatesPanel(app)),
       tool('✂', 'Dividir', () => app.splitAtPlayhead()),
       tool('🎙', 'Legendas', () => P.captionsPanel(app)),
       tool('𝐓', 'Texto', () => { const it = app.addItem('text', { text: 'SEU TEXTO', font: 'Poppins', size: .09, color: '#FFFFFF', stroke: '#000000', bg: '', x: .5, y: .3, anim: 'pop', upper: true }, null, 3); P.itemPanel(app, it); }),
@@ -661,11 +754,13 @@ function bindStage() {
     const clip = app.selectedClip();
     if (target && target.type === 'item') {
       const it = app.project.items.find(i => i.id === target.id);
-      if (!app.sel || app.sel.id !== it.id) app.select(target);
-      drag = { type: 'item', it, n0: n, x0: it.p.x, y0: it.p.y, moved: false };
+      const was = app.sel && app.sel.id === it.id;
+      if (!was) app.select(target);
+      drag = { type: 'item', it, n0: n, x0: it.p.x, y0: it.p.y, moved: false, was };
     } else if (target && target.type === 'captions') {
-      if (!app.sel || app.sel.type !== 'captions') app.select(target);
-      drag = { type: 'cap', n0: n, x0: app.project.captions.x, y0: app.project.captions.y, moved: false };
+      const was = app.sel && app.sel.type === 'captions';
+      if (!was) app.select(target);
+      drag = { type: 'cap', n0: n, x0: app.project.captions.x, y0: app.project.captions.y, moved: false, was };
     } else if (clip && app.framing) {
       drag = { type: 'frame', clip, n0: n, x0: clip.x || 0, y0: clip.y || 0, moved: false };
     } else drag = { type: 'tap', n0: n, moved: false };
@@ -689,6 +784,8 @@ function bindStage() {
     pts.delete(e.pointerId);
     if (!drag || pts.size) return;
     if (drag.moved) app.commit();
+    else if (drag.type === 'item' && drag.was) P.itemPanel(app, drag.it);
+    else if (drag.type === 'cap' && drag.was) P.captionsPanel(app);
     else if (drag.type === 'tap') { if (app.sel) app.select(null); else app.preview.toggle(); }
     drag = null;
   };

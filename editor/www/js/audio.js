@@ -7,11 +7,11 @@ export const SFX_LIST = [
   { id: 'chiado', name: 'Chiado de TV' }, { id: 'pop', name: 'Pop' }, { id: 'camera', name: 'Câmera (foto)' },
   { id: 'tique', name: 'Tique-taque' }, { id: 'carimbo', name: 'Carimbo' }, { id: 'ding', name: 'Ding' },
   { id: 'riser', name: 'Subida (tensão)' }, { id: 'digitar', name: 'Digitação' }, { id: 'erro', name: 'Erro (buzzer)' },
-  { id: 'palmas', name: 'Palmas' }, { id: 'clique', name: 'Clique de mouse' }, { id: 'notificacao', name: 'Notificação' },
+  { id: 'palmas', name: 'Palmas' }, { id: 'clique', name: 'Clique de mouse' }, { id: 'vinheta', name: 'Vinheta de abertura' }, { id: 'notificacao', name: 'Notificação' },
 ];
 
 // som automático de alguns elementos
-export const ELEMENT_SFX = { stamp: 'carimbo', counter: 'tique', censor: 'erro', card: 'boom', emoji: 'pop', circle: 'whoosh', arrow: 'pop', lower: 'whoosh', follow: 'pop', bubble: 'pop', like: 'pop', click: 'clique', tap: 'pop', bell: 'notificacao', notif: 'notificacao', swipe: 'whoosh', comment: 'pop', poll: 'pop', share: 'whoosh' };
+export const ELEMENT_SFX = { stamp: 'carimbo', counter: 'tique', censor: 'erro', card: 'boom', emoji: 'pop', circle: 'whoosh', arrow: 'pop', lower: 'whoosh', follow: 'pop', bubble: 'pop', pill: 'pop', checklist: 'pop', people: 'pop', map: 'whoosh', bars: 'whoosh', module: 'whoosh', like: 'pop', click: 'clique', tap: 'pop', bell: 'notificacao', notif: 'notificacao', swipe: 'whoosh', comment: 'pop', poll: 'pop', share: 'whoosh' };
 
 // --------------------------------------------------------------------------
 // utilidades DSP
@@ -145,6 +145,17 @@ export function sfx(type) {
       a = buf(0.7);
       for (let i = 0; i < a.length; i++) { const t = i / SR; const f = t < 0.12 ? 1046 : 1568; const tt = t < 0.12 ? t : t - 0.12; a[i] = Math.sin(2 * Math.PI * f * t) * Math.exp(-tt * 9) * Math.min(1, tt * 300); } break;
     }
+    case 'vinheta': {
+      // subida + acorde brilhante
+      a = buf(2.2); const bp = new Biquad('bp', 400, 1.5);
+      const notes = [523.25, 659.25, 783.99, 1046.5];
+      for (let i = 0; i < a.length; i++) {
+        const t = i / SR; let v = 0;
+        if (t < 0.9) { bp.set('bp', 300 + 4000 * (t / 0.9) ** 2, 1.5); v += bp.run(r()) * (t / 0.9) ** 2 * 0.7; }
+        if (t >= 0.85) { const tt = t - 0.85; for (const f of notes) v += Math.sin(2 * Math.PI * f * tt) * Math.exp(-tt * 2.2) * 0.22 * Math.min(1, tt * 200); v += Math.sin(2 * Math.PI * 65 * tt) * Math.exp(-tt * 5) * 0.6; }
+        a[i] = v;
+      } break;
+    }
     default: a = buf(0.05);
   }
   normalize(a, 0.85);
@@ -155,9 +166,44 @@ export function sfx(type) {
 // --------------------------------------------------------------------------
 // batida automática (124-128 bpm): kick, clap, chimbal e baixo serrilhado
 // --------------------------------------------------------------------------
-export const BEAT_STYLES = [{ id: 'funk', name: 'Pancada' }, { id: 'tenso', name: 'Tensão' }, { id: 'leve', name: 'Leve' }];
+export const BEAT_STYLES = [{ id: 'funk', name: 'Pancada' }, { id: 'tenso', name: 'Tensão' }, { id: 'leve', name: 'Leve' }, { id: 'animado', name: 'Animado (aula)' }, { id: 'calmo', name: 'Calmo' }];
+
+// música de fundo com acordes (para aulas, vlog, institucional)
+function makeMusic(bpm, seconds, style) {
+  const a = buf(seconds), beat = 60 / bpm, r = rng(7);
+  const prog = style === 'calmo' ? [[57, 60, 64], [53, 57, 60], [48, 52, 55], [55, 59, 62]] : [[60, 64, 67], [55, 59, 62], [57, 60, 64], [53, 57, 60]];
+  const hz = n => 440 * Math.pow(2, (n - 69) / 12);
+  const melody = [0, 2, 4, 2, 7, 4, 2, 0, 4, 5, 7, 9, 7, 4, 2, 4];
+  const lp = new Biquad('lp', style === 'calmo' ? 1400 : 2600), hp = new Biquad('hp', 7000), cbp = new Biquad('bp', 1600, .8);
+  for (let i = 0; i < a.length; i++) {
+    const t = i / SR, b = t / beat, bar = Math.floor(b / 4), ch = prog[bar % 4], inB = (b % 1) * beat;
+    let v = 0;
+    // pad / pluck de acordes
+    for (const n of ch) {
+      const f = hz(n);
+      if (style === 'calmo') v += Math.sin(2 * Math.PI * f * t) * 0.09 + Math.sin(2 * Math.PI * f * 2.001 * t) * 0.03;
+      else { const ph = (b * 2) % 1 * beat / 2; v += Math.sin(2 * Math.PI * f * t) * Math.exp(-ph * 6) * 0.12; }
+    }
+    // baixo
+    v += Math.sin(2 * Math.PI * hz(ch[0] - 24) * t) * (style === 'calmo' ? 0.12 : 0.22 * Math.exp(-inB * 3));
+    if (style !== 'calmo') {
+      // melodia simples (marimba)
+      const step = Math.floor(b * 2), m = melody[step % 16], ph = (b * 2 % 1) * beat / 2;
+      if (step % 2 === 0 || step % 16 > 8) v += Math.sin(2 * Math.PI * hz(ch[0] + 12 + m) * t) * Math.exp(-ph * 9) * 0.13;
+      // bateria leve
+      if (Math.floor(b) % 1 === 0) { const f = 50 + 90 * Math.exp(-inB * 35); v += Math.sin(2 * Math.PI * f * inB) * Math.exp(-inB * 9) * 0.5; }
+      if (Math.floor(b) % 2 === 1) v += cbp.run(r()) * Math.exp(-inB * 25) * 0.35; else cbp.run(0);
+      v += hp.run(r()) * Math.exp(-((b * 2) % 1) * beat / 2 * 70) * 0.12;
+    }
+    a[i] = lp.run(v);
+  }
+  const f = Math.min(a.length / 2, SR * 1.5);
+  for (let i = 0; i < f; i++) { a[i] *= i / f; a[a.length - 1 - i] *= i / f; }
+  return normalize(a, 0.75);
+}
 
 export function makeBeat(bpm, seconds, style = 'funk') {
+  if (style === 'animado' || style === 'calmo') return makeMusic(style === 'calmo' ? Math.min(bpm, 90) : bpm, seconds, style);
   const a = buf(seconds);
   const beat = 60 / bpm, r = rng(42);
   const hp = new Biquad('hp', 7000), cbp = new Biquad('bp', 1500, 0.7), blp = new Biquad('lp', 600);

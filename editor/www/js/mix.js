@@ -86,6 +86,21 @@ export async function mixProject(p, getBlob, onProgress = () => { }) {
     const vl = (dl[j] * (1 - f) + dl[j + 1] * f) * g, vr = (dr[j] * (1 - f) + dr[j + 1] * f) * g;
     L[n] += vl; R[n] += vr; voice[n] = (vl + vr) * 0.5;
   }
+  // narrações / áudios soltos na linha do tempo (contam como voz para o ducking)
+  for (const it of p.items) {
+    if (it.kind !== 'audio' || !p.media[it.p.mid]) continue;
+    try {
+      const a = it.p.in || 0;
+      const [nl, nr] = await decodeRange(await getBlob(it.p.mid), a, a + it.dur);
+      const o = Math.floor(it.start * SR), g = it.p.vol ?? 1, n = Math.min(nl.length, N - o);
+      const f = Math.floor(SR * 0.01);
+      for (let i = 0; i < n; i++) {
+        let k = g; if (i < f) k *= i / f; if (n - i < f) k *= (n - i) / f;
+        const vl = nl[i] * k, vr = nr[i] * k;
+        L[o + i] += vl; R[o + i] += vr; voice[o + i] += (vl + vr) * 0.5;
+      }
+    } catch (e) { /* áudio com problema: segue sem */ }
+  }
   onProgress(0.6, 'Música e batida');
 
   // 2) música e batida com ducking

@@ -28,6 +28,20 @@ export function captionWords(p) {
       out.push({ w: w.w, start: s, end: Math.max(e, s + 0.06), strong: !!w.strong, mid: c.mid, k });
     }
   });
+  // narrações / áudios soltos
+  for (const it of p.items) {
+    if (it.kind !== 'audio') continue;
+    const words = p.transcripts[it.p.mid];
+    if (!words) continue;
+    const a = it.p.in || 0;
+    for (let k = 0; k < words.length; k++) {
+      const w = words[k];
+      if (w.s < a || w.s > a + it.dur) continue;
+      const s = it.start + (w.s - a), e = Math.min(it.start + it.dur, it.start + (w.e - a));
+      out.push({ w: w.w, start: s, end: Math.max(e, s + 0.06), strong: !!w.strong, mid: it.p.mid, k });
+    }
+  }
+  out.sort((x, y) => x.start - y.start);
   return out;
 }
 
@@ -81,7 +95,7 @@ export function drawCaptions(ctx, p, pages, t, W, H) {
   const page = pages.find(pg => t >= pg.start - 0.02 && t < pg.hold);
   if (!page) return null;
   const style = cap.style;
-  let size = W * (style === 'one' ? 0.15 : 0.105) * (cap.size || 1);
+  let size = Math.min(W, H) * (style === 'one' ? 0.15 : 0.105) * (cap.size || 1);
   const font = cap.font || 'Poppins';
   ctx.save();
   ctx.font = cssFont(font, size, 900);

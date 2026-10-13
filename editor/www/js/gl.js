@@ -22,7 +22,7 @@ const BLUR = `vec4 f(vec2 uv){ vec4 acc=vec4(0); for(int i=-4;i<=4;i++){ acc += 
 export class Engine {
   constructor(canvas) {
     this.canvas = canvas;
-    const gl = canvas.getContext('webgl2', { alpha: false, antialias: false, premultipliedAlpha: false, preserveDrawingBuffer: true, powerPreference: 'high-performance' });
+    const gl = canvas.getContext('webgl2', { alpha: false, antialias: false, premultipliedAlpha: false, preserveDrawingBuffer: false, powerPreference: 'high-performance' });
     if (!gl) throw new Error('Este aparelho não tem WebGL2, que o editor precisa.');
     this.gl = gl;
     const buf = gl.createBuffer();
