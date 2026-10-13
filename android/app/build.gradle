@@ -1,0 +1,38 @@
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    namespace = 'br.com.acreditar.teleprompter'
+    compileSdk = 34
+
+    defaultConfig {
+        applicationId = 'br.com.acreditar.teleprompter'
+        minSdk = 24
+        targetSdk = 34
+        versionCode = 1
+        versionName = '1.0'
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled = false
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
+    }
+
+    // O app web (pasta www na raiz do projeto) entra dentro do APK
+    sourceSets {
+        main {
+            assets.srcDir '../../www'
+        }
+    }
+}
+
+dependencies {
+    implementation 'androidx.webkit:webkit:1.11.0'
+}
