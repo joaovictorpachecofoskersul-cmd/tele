@@ -1,0 +1,35 @@
+name: Teste da legenda automatica
+
+on:
+  push:
+    branches: [ main ]
+    paths: [ 'editor/test/**', 'editor/www/js/asr.js', 'editor/www/js/asr-worker.js', '.github/workflows/teste-legenda.yml' ]
+  workflow_dispatch:
+
+jobs:
+  teste:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Bibliotecas do editor
+        run: bash editor/preparar.sh
+      - name: Fala de teste em portugues (voz sintetizada)
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq espeak-ng
+          espeak-ng -v pt-br -s 140 -g 6 -w editor/test/fala.wav "Olá, pessoal. Hoje eu vou falar sobre a importância da água tratada para a saúde de todo mundo. Sem saneamento básico, muitas doenças continuam a aparecer nas comunidades. Por isso é tão importante cobrar o poder público. Compartilhe este vídeo com seus amigos e comente o que você achou. Até a próxima."
+          ls -la editor/test/fala.wav
+      - name: Playwright
+        working-directory: editor/test
+        run: |
+          npm init -y >/dev/null
+          npm i --no-audit --no-fund playwright@1.56.0
+          npx playwright install --with-deps chromium
+      - name: Rodar legenda
+        run: |
+          node editor/test/serve.mjs &
+          sleep 2
+          cd editor/test && node asr-test.mjs

@@ -1,4 +1,4 @@
-// Worker da legenda automática (Whisper small com tempo por palavra), roda no próprio celular.
+// Worker da legenda automática (Whisper com tempo por palavra), roda no próprio celular.
 import { pipeline, env } from '../vendor/transformers.min.js';
 
 env.allowLocalModels = false;
@@ -7,15 +7,29 @@ env.backends.onnx.wasm.wasmPaths = {
   mjs: new URL('../vendor/ort/ort-wasm-simd-threaded.asyncify.mjs', import.meta.url).href,
   wasm: new URL('../vendor/ort/ort-wasm-simd-threaded.asyncify.wasm', import.meta.url).href,
 };
-env.backends.onnx.wasm.numThreads = self.crossOriginIsolated ? Math.max(1, Math.min(4, (navigator.hardwareConcurrency || 2) - 1)) : 1;
 
-const MODEL = 'onnx-community/whisper-small_timestamped';
-let asr = null;
+// rapida: Whisper base (~100 MB) ; precisa: Whisper small (~250 MB)
+export const MODELS = {
+  rapida: { id: 'Xenova/whisper-base', revision: 'output_attentions' },
+  precisa: { id: 'onnx-community/whisper-small_timestamped', revision: 'main' },
+};
 
-async function load() {
-  if (asr) return asr;
+let asr = null, loadedKey = null, configured = false;
+
+function configure(threads) {
+  if (configured) return;
+  const max = self.crossOriginIsolated ? Math.max(1, Math.min(4, (navigator.hardwareConcurrency || 2) - 1)) : 1;
+  env.backends.onnx.wasm.numThreads = Math.max(1, Math.min(threads || max, max));
+  configured = true;
+}
+
+async function load(key) {
+  if (asr && loadedKey === key) return asr;
+  const m = MODELS[key] || MODELS.rapida;
   const files = {};
-  asr = await pipeline('automatic-speech-recognition', MODEL, {
+  let announced = false;
+  asr = await pipeline('automatic-speech-recognition', m.id, {
+    revision: m.revision,
     device: 'wasm',
     dtype: { encoder_model: 'q8', decoder_model_merged: 'q8' },
     progress_callback: p => {
@@ -24,17 +38,25 @@ async function load() {
         let l = 0, t = 0; for (const f of Object.values(files)) { l += f.loaded; t += f.total; }
         postMessage({ type: 'download', loaded: l, total: t });
       }
+      if (p.status === 'done' && !announced && Object.values(files).every(f => f.loaded >= f.total)) {
+        announced = true;
+        postMessage({ type: 'stage', stage: 'preparing' });
+      }
     },
   });
+  loadedKey = key;
   return asr;
 }
 
 onmessage = async e => {
   const m = e.data;
   try {
-    if (m.type === 'load') { await load(); postMessage({ type: 'ready' }); return; }
+    if (m.type === 'config') { configure(m.threads); postMessage({ type: 'config', id: m.id, threads: env.backends.onnx.wasm.numThreads, isolated: !!self.crossOriginIsolated }); return; }
+    configure();
+    if (m.type === 'load') { postMessage({ type: 'stage', stage: 'loading' }); await load(m.model); postMessage({ type: 'ready', id: m.id }); return; }
     if (m.type === 'chunk') {
-      const a = await load();
+      const a = await load(m.model);
+      postMessage({ type: 'stage', stage: 'running' });
       const out = await a(m.audio, { language: m.lang || 'portuguese', task: 'transcribe', return_timestamps: 'word' });
       const words = (out.chunks || []).map(c => ({ w: String(c.text || '').trim(), s: c.timestamp[0], e: c.timestamp[1] }))
         .filter(w => w.w);

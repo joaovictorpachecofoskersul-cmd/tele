@@ -3,6 +3,7 @@ import { h, section, slider, chips, swatches, toggle, btn, textInput, numInput, 
 import { TRANSITIONS, EFFECTS, TRANS_BY_ID, FX_BY_ID } from './effects.js';
 import { ELEMENTS, TEXT_ANIMS } from './overlays.js';
 import { CAPTION_STYLES } from './captions.js';
+import { ASR_MODELS } from './asr.js';
 import { FONT_CHOICES } from './fonts.js';
 import { SFX_LIST, BEAT_STYLES, ELEMENT_SFX } from './audio.js';
 import { QUALITIES } from './export.js';
@@ -430,7 +431,10 @@ export function captionsPanel(app) {
     const has = Object.values(p.transcripts).some(w => w && w.length);
     body.append(
       pending.length || !has ? h('div', { class: 'callout' },
-        h('p', {}, has ? 'Alguns vídeos ainda não têm legenda.' : 'Gere a legenda automática a partir da fala dos vídeos. Na primeira vez o app baixa o reconhecimento de voz (cerca de 250 MB); depois funciona sem internet.'),
+        h('p', {}, has ? 'Alguns vídeos ainda não têm legenda.' : 'Gere a legenda automática a partir da fala dos vídeos. Na primeira vez o app baixa o reconhecimento de voz (cerca de 100 MB no modo Rápido); depois funciona sem internet.'),
+        h('div', { class: 'sec-t' }, 'Reconhecimento de voz'),
+        chips(ASR_MODELS, (() => { try { return localStorage.getItem('ed.asr') || 'rapida'; } catch (e) { return 'rapida'; } })(), v => { try { localStorage.setItem('ed.asr', v); } catch (e) { } }),
+        h('p', { class: 'hint' }, 'A Rápida serve para a maioria dos vídeos e é a melhor para celular. A Precisa erra menos, mas demora bem mais. Depois você pode corrigir qualquer palavra.'),
         btn('🎙 Gerar legenda automática', async () => { await app.transcribeAll(); captionsPanel(app); }, 'pri')) : null,
       toggle('Mostrar legenda', cap.on, v => { cap.on = v; app.commit(); }),
       section('Estilo', chips(CAPTION_STYLES, cap.style, v => { cap.style = v; app.commit(true); })),

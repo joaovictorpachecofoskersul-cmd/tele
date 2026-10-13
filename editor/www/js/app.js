@@ -7,7 +7,7 @@ import { Timeline } from './timeline.js';
 import { loadFonts } from './fonts.js';
 import { probe, thumbnails, imageThumb, decodeMono16k, envFrom16k, kindOf } from './media.js';
 import { speechRanges } from './audio.js';
-import { transcribe } from './asr.js';
+import { transcribe, cancelTranscription } from './asr.js';
 import { exportVideo } from './export.js';
 import { needsProxy, makeProxy } from './proxy.js';
 import * as P from './panels.js';
@@ -573,17 +573,31 @@ app.transcribeAll = async () => {
   const mids = app.mediaNeedingTranscript();
   if (!mids.length) { toast('Todos os vídeos já têm legenda'); return; }
   const p = app.project;
-  let done = 0, total = 0;
+  let model = 'rapida';
+  try { model = localStorage.getItem('ed.asr') || 'rapida'; } catch (e) { }
+  let done = 0, total = 0, cancelledByUser = false;
+  const fmtEta = s => s > 90 ? `uns ${Math.ceil(s / 60)} min` : `uns ${Math.max(5, Math.round(s / 5) * 5)} s`;
   try {
     for (const mid of mids) {
       const m = p.media[mid];
-      busy({ title: `Legendando ${done + 1} de ${mids.length}`, detail: 'Lendo o áudio', progress: 0 });
-      await ensureEnv(mid, k => busyUpdate({ progress: k * 0.1 }));
+      const title = mids.length > 1 ? `Legendando ${done + 1} de ${mids.length}` : 'Gerando legenda';
+      busy({ title, detail: 'Lendo o áudio do vídeo', progress: 0, cancel: () => { cancelledByUser = true; cancelTranscription(); } });
+      await ensureEnv(mid, k => busyUpdate({ progress: k * 0.05 }));
       let mono = app.mono.get(mid);
       if (!mono) { mono = await decodeMono16k(await app.getBlob(mid), m.dur); app.mono.set(mid, mono); }
-      const words = await transcribe(mono.slice(), app.envOf(mid), {
+      const t0 = Date.now();
+      const words = await transcribe(mono, app.envOf(mid), {
+        model,
+        onStage: st => {
+          if (st === 'loading') busyUpdate({ detail: 'Abrindo o reconhecimento de voz...', progress: null });
+          if (st === 'preparing') busyUpdate({ detail: 'Preparando o reconhecimento de voz. Na primeira vez pode levar até 1 minuto.', progress: null });
+          if (st === 'safe') busyUpdate({ detail: 'O celular demorou para responder. Continuando em modo seguro (mais lento, porém estável)...', progress: null });
+        },
         onDownload: (l, t) => busyUpdate({ detail: `Baixando o reconhecimento de voz (só na primeira vez): ${(l / 1e6).toFixed(0)} de ${(t / 1e6).toFixed(0)} MB`, progress: t ? l / t : null }),
-        onProgress: k => busyUpdate({ detail: `Escutando e escrevendo... ${Math.round(k * 100)}%`, progress: 0.1 + 0.9 * k }),
+        onProgress: (k, part, parts, eta) => {
+          const sec = Math.round((Date.now() - t0) / 1000);
+          busyUpdate({ detail: `Escutando e escrevendo${parts > 1 ? ` (parte ${part} de ${parts})` : ''}... ${Math.round(k * 100)}%` + (eta > 3 ? ` · falta ${fmtEta(eta)}` : '') + ` · ${sec} s`, progress: 0.05 + 0.95 * k });
+        },
       });
       p.transcripts[mid] = words;
       total += words.length; done++;
@@ -591,12 +605,13 @@ app.transcribeAll = async () => {
     busyDone();
     p.captions.on = true;
     app.commit();
-    toast(`Legenda pronta: ${total} palavras. Confira e corrija se precisar.`, 4000);
+    toast(total ? `Legenda pronta: ${total} palavras. Confira e corrija se precisar.` : 'Não encontrei fala nesse vídeo.', 4000);
   } catch (e) {
     busyDone();
     const msg = String(e.message || e);
-    if (/fetch|network|Failed to load|404|Could not locate/i.test(msg)) toast('Para a primeira legenda o app precisa de internet para baixar o reconhecimento de voz. Conecte e tente de novo.', 6000);
-    else toast('Erro na legenda automática: ' + msg, 6000);
+    if (cancelledByUser || msg === 'cancelado' || msg === 'reiniciado') toast('Legenda cancelada');
+    else if (/fetch|network|Failed to load|404|Could not locate|Unauthorized/i.test(msg)) toast('Para a primeira legenda o app precisa de internet para baixar o reconhecimento de voz. Conecte e tente de novo.', 6000);
+    else toast('Erro na legenda automática: ' + msg, 7000);
     if (done) app.commit();
   }
 };
