@@ -50,14 +50,24 @@ export async function mixProject(p, getBlob, onProgress = () => { }) {
   const voiceGain = p.audio.voice ?? 1;
 
   // 1) voz / som original dos clipes
-  const ranges = [];
-  for (let i = 0; i < p.clips.length; i++) {
-    const c = p.clips[i], m = p.media[c.mid];
-    if (!m || m.kind === 'image' || !m.hasAudio || !(c.vol > 0)) { ranges.push(null); continue; }
+  // lê o áudio de cada arquivo uma vez só (cobrindo todos os clipes dele)
+  const spans = {};
+  for (const c of p.clips) {
+    const m = p.media[c.mid];
+    if (!m || m.kind === 'image' || !m.hasAudio || !(c.vol > 0)) continue;
     const a = Math.max(0, c.in - 0.5), b = Math.min(m.dur, c.out + 0.5);
-    onProgress(0.05 + 0.5 * i / p.clips.length, 'Lendo o áudio dos clipes');
-    try { ranges.push({ a, data: await decodeRange(await getBlob(c.mid), a, b) }); } catch (e) { ranges.push(null); }
+    const s = spans[c.mid];
+    spans[c.mid] = s ? { a: Math.min(s.a, a), b: Math.max(s.b, b) } : { a, b };
   }
+  const decoded = {};
+  const mids = Object.keys(spans);
+  for (let k = 0; k < mids.length; k++) {
+    const mid = mids[k];
+    onProgress(0.05 + 0.5 * k / Math.max(1, mids.length), 'Lendo o áudio dos vídeos');
+    try { decoded[mid] = { a: spans[mid].a, data: await decodeRange(await getBlob(mid), spans[mid].a, spans[mid].b) }; }
+    catch (e) { console.warn('áudio', mid, e); }
+  }
+  const ranges = p.clips.map(c => (c.vol > 0 && decoded[c.mid]) || null);
   const fadeS = Math.floor(SR * 0.008);
   let ci = 0;
   for (let n = 0; n < N; n++) {

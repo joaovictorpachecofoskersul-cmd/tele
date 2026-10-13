@@ -558,39 +558,51 @@ export function templatesPanel(app, afterImport = false) {
   let store = {};
   try { store = JSON.parse(localStorage.getItem('ed.tpl') || '{}'); } catch (e) { }
   const opt = { title: '', handle: store.handle || '', intro: true, outro: true, trans: true, music: true };
-  let chosen = p.template || null;
+  let chosen = null;
   const grid = h('div', { class: 'tgrid' });
   const cards = new Map();
+  const status = h('div', { class: 'tstatus' });
+  const showStatus = t => {
+    status.innerHTML = '';
+    if (!t) return;
+    status.append(h('div', { class: 'callout' }, h('p', {}, '✓ Modelo "' + t.name + '" aplicado. Veja no vídeo acima; toque em outro para trocar ou em OK para continuar.'),
+      app.mediaNeedingTranscript().length ? btn('🎙 Gerar legenda agora', () => { app.closeSheet(); app.transcribeAll(); }, 'pri') : null));
+  };
+  const apply = t => {
+    try {
+      try { localStorage.setItem('ed.tpl', JSON.stringify({ handle: opt.handle })); } catch (e) { }
+      applyTemplate(p, t, opt);
+      app.applyFormat();
+      app.commit();
+      app.setTime(Math.min(1.5, layout(p).total / 3));
+      chosen = t.id;
+      for (const [id, c] of cards) c.classList.toggle('on', id === t.id);
+      showStatus(t);
+      status.scrollIntoView({ block: 'nearest' });
+    } catch (e) {
+      console.error(e);
+      toast('Não consegui aplicar o modelo: ' + e.message, 6000);
+    }
+  };
   for (const t of TEMPLATES) {
     const thumb = h('div', { class: 'tthumb', style: { background: `linear-gradient(135deg, ${t.colors[0]}, ${t.colors[1]})`, aspectRatio: t.format.replace(':', '/') } });
     const card = h('button', { class: 'tcard' + (chosen === t.id ? ' on' : ''), type: 'button' }, thumb, h('b', {}, t.name), h('span', {}, t.desc));
-    card.addEventListener('click', () => { chosen = t.id; for (const [id, c] of cards) c.classList.toggle('on', id === t.id); applyBtn.disabled = false; });
+    card.addEventListener('click', () => apply(t));
     cards.set(t.id, card);
     grid.append(card);
   }
-  const applyBtn = btn('Aplicar modelo', async () => {
-    const t = TEMPLATES.find(x => x.id === chosen);
-    if (!t) return;
-    try { localStorage.setItem('ed.tpl', JSON.stringify({ handle: opt.handle })); } catch (e) { }
-    applyTemplate(p, t, opt);
-    app.applyFormat();
-    app.commit();
-    app.closeSheet();
-    app.setTime(0);
-    toast('Modelo "' + t.name + '" aplicado. Dá para mudar qualquer coisa depois.', 3500);
-    if (app.mediaNeedingTranscript().length && await confirmBox('Gerar a legenda automática agora? O app escuta a fala e escreve sozinho.', 'Gerar legenda')) app.transcribeAll();
-  }, 'pri big');
-  applyBtn.disabled = !chosen;
+  // mudar título/@/opções reaplica o modelo escolhido
+  const reapply = () => { const t = TEMPLATES.find(x => x.id === chosen); if (t) apply(t); };
   const body = h('div', {},
-    afterImport ? h('p', { class: 'hint' }, 'Escolha um modelo para começar já com tudo pronto, ou toque em OK para editar do zero.') : null,
+    h('p', { class: 'hint' }, afterImport ? 'Toque num modelo para aplicar na hora. Dá para trocar quantas vezes quiser, ou tocar em OK para editar do zero.' : 'Toque num modelo para aplicar na hora. Os textos e elementos do modelo anterior são trocados; o que você colocou continua.'),
     h('div', { class: 'nrow' },
-      h('div', {}, h('div', { class: 'sec-t' }, 'Título do vídeo (opcional)'), textInput('', v => { opt.title = v; }, { placeholder: 'Ex.: 3 dicas de saúde' })),
-      h('div', {}, h('div', { class: 'sec-t' }, 'Seu @ (opcional)'), textInput(opt.handle, v => { opt.handle = v; }, { placeholder: '@seuperfil' }))),
+      h('div', {}, h('div', { class: 'sec-t' }, 'Título do vídeo (opcional)'), textInput('', v => { opt.title = v; }, { placeholder: 'Ex.: 3 dicas de saúde', onCommit: reapply })),
+      h('div', {}, h('div', { class: 'sec-t' }, 'Seu @ (opcional)'), textInput(opt.handle, v => { opt.handle = v; }, { placeholder: '@seuperfil', onCommit: reapply }))),
     h('div', { class: 'tgl2' },
-      toggle('Abertura e final', true, v => { opt.intro = v; opt.outro = v; }),
-      toggle('Transições', true, v => { opt.trans = v; }),
-      toggle('Batida / trilha', true, v => { opt.music = v; })),
-    grid, applyBtn);
+      toggle('Abertura e final', true, v => { opt.intro = v; opt.outro = v; reapply(); }),
+      toggle('Transições', true, v => { opt.trans = v; reapply(); }),
+      toggle('Batida / trilha', true, v => { opt.music = v; reapply(); })),
+    status, grid);
   app.openSheet('Modelos', body);
   // prévias com um quadro do próprio vídeo
   (async () => {

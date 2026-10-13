@@ -49,7 +49,7 @@ async function showHome() {
   app.preview.releaseAll();
   if (app.project) await saveNow();
   app.project = null;
-  if (optCtl && optCtl.cancel) { try { optCtl.cancel(); } catch (e) { } }
+  if (optCtl && optCtl.cancel) { optCtl.paused = true; try { optCtl.cancel(); } catch (e) { } }
   for (const u of app.urls.values()) URL.revokeObjectURL(u);
   for (const u of app.proxyUrls.values()) URL.revokeObjectURL(u);
   app.urls.clear(); app.blobs.clear(); app.mono.clear(); app.proxyUrls.clear();
@@ -203,6 +203,8 @@ async function optimizeInBackground() {
     for (const m of Object.values(p.media)) {
       if (app.project !== p) break;
       if (m.kind !== 'video' || m.proxy === false || app.proxyUrls.has(m.id)) continue;
+      while (app.transcribing && app.project === p) await new Promise(r => setTimeout(r, 1500));   // não disputa o processador com a legenda
+      if (app.project !== p) break;
       const px = await store.getMedia(m.id + '_px');
       if (px) { app.proxyUrls.set(m.id, URL.createObjectURL(px)); app.preview.forgetMedia(m.id); app.requestRender(); continue; }
       const blob = await app.getBlob(m.id);
@@ -217,9 +219,18 @@ async function optimizeInBackground() {
         app.proxyUrls.set(m.id, URL.createObjectURL(out));
         app.preview.forgetMedia(m.id);
         app.requestRender();
-      } catch (e) { m.proxy = false; console.warn('proxy', e); }
+      } catch (e) {
+        if (optCtl && optCtl.paused) { optimizing = false; optCtl = null; $('#bgtask').textContent = ''; setTimeout(optimizeInBackground, 2000); return; }
+        if (app.project === p) m.proxy = false;        // falhou de verdade: segue com o original
+        console.warn('proxy', e);
+      }
     }
-  } finally { optimizing = false; optCtl = null; $('#bgtask').textContent = ''; }
+  } finally { optimizing = false; optCtl = null; if (!app.transcribing) $('#bgtask').textContent = ''; }
+}
+
+// pausa a otimização (ela recomeça sozinha depois)
+function pauseOptimize() {
+  if (optCtl && optCtl.cancel) { optCtl.paused = true; try { optCtl.cancel(); } catch (e) { } }
 }
 
 app.lowerPreview = () => {
@@ -570,6 +581,13 @@ app.mediaNeedingTranscript = () => {
 };
 
 app.transcribeAll = async () => {
+  app.transcribing = true;
+  pauseOptimize();
+  try { return await transcribeAllInner(); }
+  finally { app.transcribing = false; setTimeout(optimizeInBackground, 1500); }
+};
+
+async function transcribeAllInner() {
   const mids = app.mediaNeedingTranscript();
   if (!mids.length) { toast('Todos os vídeos já têm legenda'); return; }
   const p = app.project;
@@ -614,7 +632,7 @@ app.transcribeAll = async () => {
     else toast('Erro na legenda automática: ' + msg, 7000);
     if (done) app.commit();
   }
-};
+}
 
 // Corrige o texto de uma "página" da legenda
 app.editCaptionPage = (pg, text) => {

@@ -188,6 +188,179 @@ export const TEMPLATES = [
     build: L => [...items.progress(L.total, 'bottom', '#3B82F6')],
   },
   {
+    id: 'receita', name: 'Receita / Culinária', desc: 'Cor quente, título de ingrediente, lista com checks, transições deslizando e trilha leve.',
+    format: '9:16', colors: ['#EA580C', '#FDE68A'],
+    captions: { on: true, style: 'box', maxWords: 3, x: .5, y: .76, size: .95, color: '#FFFFFF', active: '#FDE68A', strong: '#FB923C', font: 'Poppins', upper: true, star: false },
+    trans: ['slideLeft', 'zoomin', 'whipL'],
+    clipFx: [{ id: 'warm', i: .4 }, { id: 'pop', i: .3 }],
+    audio: { beat: { on: true, bpm: 108, vol: .2, style: 'animado' }, sfxAuto: true, duck: true },
+    build: (L, o) => [
+      { kind: 'pill', start: 0, dur: 3, p: { text: o.title || 'RECEITA FÁCIL', bg: '#EA580C', color: '#FFFFFF', x: .5, y: .1, size: .05 } },
+      ...(L.total > 8 ? [{ kind: 'checklist', start: 3.2, dur: 3.6, p: { text: 'Ingrediente 1\nIngrediente 2\nIngrediente 3', x: .5, y: .4, size: .05, color: '#FFFFFF', check: '#EA580C', box: 'rgba(0,0,0,.55)' } }] : []),
+      ...(o.outro ? items.endCard(L.total, 'SALVE A RECEITA', o.handle || '', '#EA580C', '#7C2D12', false) : []),
+    ],
+  },
+  {
+    id: 'fitness', name: 'Treino / Fitness', desc: 'Energia alta: uma palavra por vez, pulsando na batida, zoom soco e tremor nos cortes.',
+    format: '9:16', colors: ['#84CC16', '#111111'],
+    captions: { on: true, style: 'one', maxWords: 1, x: .5, y: .62, size: 1.1, color: '#FFFFFF', active: '#BEF264', strong: '#BEF264', font: 'Anton', upper: true, star: false },
+    trans: ['zoompunch', 'shake', 'flash'],
+    clipFx: [{ id: 'pop', i: .5 }],
+    audio: { beat: { on: true, bpm: 128, vol: .3, style: 'funk' }, sfxAuto: true, duck: true },
+    build: (L, o) => [
+      { kind: 'effect', start: 0, dur: L.total, p: { fx: 'pulse', i: .5, bpm: 128 } },
+      { kind: 'pill', start: 0, dur: 3, p: { text: o.title || 'TREINO DE HOJE', bg: '#84CC16', color: '#111111', x: .5, y: .1, size: .05 } },
+      ...items.progress(L.total, 'top', '#84CC16'),
+    ],
+  },
+  {
+    id: 'antesdepois', name: 'Antes e depois', desc: 'Marca "ANTES" no primeiro clipe e "DEPOIS" no último, com papel rasgado na virada.',
+    format: '9:16', colors: ['#6B7280', '#22C55E'],
+    captions: { on: true, style: 'classic', maxWords: 4, x: .5, y: .8, size: .9, color: '#FFFFFF', active: '#86EFAC', strong: '#FFE600', font: 'Poppins', upper: true, star: false },
+    trans: ['tear', 'diag'],
+    audio: { beat: { on: true, bpm: 112, vol: .2, style: 'leve' }, sfxAuto: true, duck: true },
+    build: (L, o, p) => {
+      const n = p.clips.length, out = [];
+      if (n) out.push({ kind: 'stamp', start: .2, dur: Math.min(2.5, L.starts[1] ?? L.total), p: { text: 'ANTES', color: '#9CA3AF', x: .5, y: .2, size: .13, rot: -8 } });
+      if (n > 1) out.push({ kind: 'stamp', start: L.starts[n - 1] + .2, dur: 2.5, p: { text: 'DEPOIS', color: '#22C55E', x: .5, y: .2, size: .13, rot: -8 } });
+      if (o.title) out.push({ kind: 'text', start: 0, dur: 2.5, p: { text: o.title, font: 'Poppins', size: .07, color: '#FFFFFF', stroke: '#000000', bg: '', x: .5, y: .35, anim: 'pop', upper: true } });
+      return out;
+    },
+  },
+  {
+    id: 'depoimento', name: 'Depoimento', desc: 'Fundo desfocado, nome e cargo na tela, legenda suave e trilha calma. Bom para cliente, paciente ou liderança.',
+    format: '9:16', fitAll: 'blur', colors: ['#0EA5E9', '#E0F2FE'],
+    captions: { on: true, style: 'fill', maxWords: 4, x: .5, y: .76, size: .9, color: '#FFFFFF', active: '#7DD3FC', strong: '#FDE68A', font: 'Poppins', upper: false, star: false },
+    trans: ['fade'],
+    audio: { beat: { on: true, bpm: 84, vol: .18, style: 'calmo' }, sfxAuto: false, duck: true },
+    build: (L, o) => [
+      { kind: 'lower', start: .6, dur: 4.5, p: { name: o.handle || 'Nome da pessoa', role: o.title || 'Depoimento', color: '#0EA5E9', x: .06, y: .66 } },
+      { kind: 'text', start: 0, dur: 2.4, p: { text: '“', font: 'Montserrat', size: .22, color: '#7DD3FC', stroke: '', bg: '', x: .2, y: .14, anim: 'fade', upper: false } },
+    ],
+  },
+  {
+    id: 'frase', name: 'Frase / Motivacional', desc: 'Preto e branco com vinheta, uma palavra por vez no centro, dissolver e trilha calma.',
+    format: '9:16', colors: ['#111111', '#F5F5F5'],
+    captions: { on: true, style: 'one', maxWords: 1, x: .5, y: .5, size: 1, color: '#FFFFFF', active: '#FFFFFF', strong: '#FDE68A', font: 'Montserrat', upper: true, star: false },
+    trans: ['fade', 'dip'],
+    clipFx: [{ id: 'bw', i: .9 }, { id: 'vignette', i: .7 }],
+    audio: { beat: { on: true, bpm: 76, vol: .26, style: 'calmo' }, sfxAuto: false, duck: true },
+    build: (L, o) => o.title ? [{ kind: 'text', start: .3, dur: 3, p: { text: o.title, font: 'Montserrat', size: .07, color: '#FFFFFF', stroke: '', bg: '', x: .5, y: .3, anim: 'fade', upper: true } }] : [],
+  },
+  {
+    id: 'evento', name: 'Evento / Convite', desc: 'Card de abertura com o nome do evento, etiqueta de data e local, confete e final "te esperamos".',
+    format: '9:16', colors: ['#7C3AED', '#F472B6'],
+    captions: { on: true, style: 'karaoke', maxWords: 3, x: .5, y: .72, size: 1, color: '#FFFFFF', active: '#F9A8D4', strong: '#FFE600', font: 'Poppins', upper: true, star: false },
+    trans: ['leak', 'heart', 'zoomin'],
+    audio: { beat: { on: true, bpm: 116, vol: .24, style: 'animado' }, sfxAuto: true, duck: true },
+    build: (L, o) => [
+      ...(o.intro ? [{ kind: 'card', start: 0, dur: 2.6, p: { title: o.title || 'NOME DO EVENTO', sub: 'VOCÊ É NOSSO CONVIDADO', bg: '#7C3AED', bg2: '#4C1D95', color: '#FFFFFF', confetti: true, comment: '' } }] : []),
+      { kind: 'pill', start: o.intro ? 2.8 : .3, dur: 3.5, p: { text: o.handle || 'DATA · LOCAL', bg: '#F472B6', color: '#FFFFFF', x: .5, y: .12, size: .045 } },
+      ...(o.outro ? items.endCard(L.total, 'TE ESPERAMOS!', o.handle || '', '#7C3AED', '#2E1065', true) : []),
+    ],
+  },
+  {
+    id: 'parabens', name: 'Aniversário / Parabéns', desc: 'Confete, emojis de festa, transição de coração e card final de parabéns.',
+    format: '9:16', colors: ['#F59E0B', '#EC4899'],
+    captions: { on: true, style: 'karaoke', maxWords: 3, x: .5, y: .72, size: 1, color: '#FFFFFF', active: '#FDE68A', strong: '#F9A8D4', font: 'Poppins', upper: true, star: true },
+    trans: ['heart', 'leak', 'iris'],
+    audio: { beat: { on: true, bpm: 118, vol: .25, style: 'animado' }, sfxAuto: true, duck: true },
+    build: (L, o) => [
+      { kind: 'confetti', start: 0, dur: Math.min(3, L.total), p: {} },
+      { kind: 'text', start: .2, dur: 3, p: { text: o.title || 'PARABÉNS!', font: 'Anton', size: .12, color: '#FDE68A', stroke: '#000000', bg: '', x: .5, y: .25, anim: 'letters3d', upper: true } },
+      ...(L.total > 6 ? [{ kind: 'emoji', start: L.total * .45, dur: 1.8, p: { text: '🎉', x: .8, y: .3, size: .2, anim: 'bounce' } }] : []),
+      ...(o.outro ? items.endCard(L.total, 'FELIZ ANIVERSÁRIO', o.handle || '', '#EC4899', '#831843', true) : []),
+    ],
+  },
+  {
+    id: 'top', name: 'Lista / Top 5', desc: 'Cada clipe ganha um número grande (#5, #4...) com chicote entre eles. Monte um clipe por item.',
+    format: '9:16', colors: ['#FACC15', '#111111'],
+    captions: { on: true, style: 'karaoke', maxWords: 3, x: .5, y: .72, size: 1, color: '#FFFFFF', active: '#FACC15', strong: '#FF2B2B', font: 'Poppins', upper: true, star: false },
+    trans: ['whipL', 'whipR'],
+    audio: { beat: { on: true, bpm: 124, vol: .22, style: 'funk' }, sfxAuto: true, duck: true },
+    build: (L, o, p) => {
+      const n = p.clips.length, out = [];
+      p.clips.forEach((c, i) => {
+        const d = Math.min(2.2, (L.starts[i + 1] ?? L.total) - L.starts[i]);
+        out.push({ kind: 'text', start: L.starts[i] + .05, dur: d, p: { text: '#' + (n - i), font: 'Anton', size: .2, color: '#FACC15', stroke: '#000000', bg: '', x: .2, y: .14, anim: 'zoom', upper: true } });
+      });
+      if (o.title) out.push({ kind: 'pill', start: 0, dur: 3, p: { text: o.title, bg: '#FACC15', color: '#111111', x: .6, y: .12, size: .04 } });
+      return out;
+    },
+  },
+  {
+    id: 'tour', name: 'Tour / Lugar', desc: 'Zoom lento em tudo, transições de luz, local na tela e trilha calma. Para imóvel, viagem ou espaço.',
+    format: '9:16', colors: ['#0D9488', '#99F6E4'],
+    captions: { on: true, style: 'fill', maxWords: 4, x: .5, y: .8, size: .85, color: '#FFFFFF', active: '#99F6E4', strong: '#FDE68A', font: 'Poppins', upper: false, star: false },
+    trans: ['leak', 'zoomin', 'fade'],
+    clipFx: [{ id: 'zoomslow', i: .5 }],
+    audio: { beat: { on: true, bpm: 90, vol: .25, style: 'calmo' }, sfxAuto: false, duck: true },
+    build: (L, o) => [
+      { kind: 'lower', start: .5, dur: 4, p: { name: o.title || 'Nome do lugar', role: o.handle || 'Cidade · Estado', color: '#2DD4BF', x: .06, y: .14 } },
+    ],
+  },
+  {
+    id: 'produto', name: 'Produto / Novidade', desc: 'Carimbo de "novo", círculo de destaque, setas, cores vivas e chamada final.',
+    format: '9:16', colors: ['#2563EB', '#FACC15'],
+    captions: { on: true, style: 'box', maxWords: 3, x: .5, y: .74, size: 1, color: '#FFFFFF', active: '#FACC15', strong: '#FF2B2B', font: 'Poppins', upper: true, star: false },
+    trans: ['zoompunch', 'rgbsplit', 'whipL'],
+    clipFx: [{ id: 'pop', i: .45 }],
+    audio: { beat: { on: true, bpm: 124, vol: .24, style: 'funk' }, sfxAuto: true, duck: true },
+    build: (L, o) => [
+      { kind: 'stamp', start: .5, dur: 1.8, p: { text: 'NOVO', color: '#2563EB', x: .78, y: .14, size: .11, rot: 12 } },
+      ...(L.total > 5 ? [{ kind: 'circle', start: L.total * .35, dur: 2.2, p: { x: .5, y: .45, r: .22, color: '#FACC15' } }] : []),
+      ...(o.title ? [{ kind: 'text', start: 0, dur: 2.6, p: { text: o.title, font: 'Poppins', size: .08, color: '#FFFFFF', stroke: '#000000', bg: '', x: .5, y: .3, anim: 'pop', upper: true } }] : []),
+      ...(o.outro ? items.endCard(L.total, 'GARANTA O SEU', o.handle || 'LINK NA BIO', '#2563EB', '#1E3A8A', true) : []),
+    ],
+  },
+  {
+    id: 'vocesabia', name: 'Você sabia? / Educativo', desc: 'Etiqueta "você sabia?", nome da instituição, legenda clássica, trilha animada e final "compartilhe".',
+    format: '9:16', colors: ['#173B32', '#F0B429'],
+    captions: { on: true, style: 'classic', maxWords: 5, x: .5, y: .78, size: .9, color: '#FFFFFF', active: '#F0B429', strong: '#F0B429', font: 'Poppins', upper: false, star: false },
+    trans: ['fade', 'slideLeft'],
+    audio: { beat: { on: true, bpm: 110, vol: .2, style: 'animado' }, sfxAuto: true, duck: true },
+    build: (L, o) => [
+      { kind: 'pill', start: 0, dur: 3.2, p: { text: 'VOCÊ SABIA?', bg: '#F0B429', color: '#173B32', x: .5, y: .1, size: .05 } },
+      ...(o.title ? [{ kind: 'text', start: .3, dur: 3.2, p: { text: o.title, font: 'Poppins', size: .07, color: '#FFFFFF', stroke: '', bg: '#173B32', x: .5, y: .2, anim: 'slide', upper: false } }] : []),
+      ...(o.handle ? [{ kind: 'lower', start: 3.6, dur: 4, p: { name: o.handle, role: 'Informação de utilidade pública', color: '#F0B429', x: .06, y: .64 } }] : []),
+      ...(o.outro ? items.endCard(L.total, 'COMPARTILHE', 'INFORMAÇÃO SALVA VIDAS', '#173B32', '#0B1F1A', false) : []),
+    ],
+  },
+  {
+    id: 'reacao', name: 'Reação', desc: 'Zoom soco e emojis de surpresa nos momentos fortes, uma palavra por vez e efeitos sonoros.',
+    format: '9:16', colors: ['#F43F5E', '#FDE047'],
+    captions: { on: true, style: 'one', maxWords: 1, x: .5, y: .6, size: 1.1, color: '#FFFFFF', active: '#FFFFFF', strong: '#FDE047', font: 'Anton', upper: true, star: false },
+    trans: ['zoompunch', 'glitch'],
+    audio: { beat: { on: false }, sfxAuto: true, duck: true },
+    build: L => [
+      ...(L.total > 3 ? [{ kind: 'emoji', start: L.total * .25, dur: 1.6, p: { text: '😱', x: .8, y: .22, size: .2, anim: 'pop' } }, { kind: 'effect', start: L.total * .25, dur: .6, p: { fx: 'zoompunch', i: .8 } }] : []),
+      ...(L.total > 7 ? [{ kind: 'emoji', start: L.total * .65, dur: 1.6, p: { text: '🤯', x: .2, y: .25, size: .2, anim: 'bounce' } }, { kind: 'effect', start: L.total * .65, dur: .5, p: { fx: 'flash', i: .8 } }] : []),
+    ],
+  },
+  {
+    id: 'album', name: 'Álbum de fotos', desc: 'Para fotos: zoom lento em cada uma, transições suaves e de tinta, trilha calma e sem legenda.',
+    format: '9:16', fitAll: 'blur', kbAll: true, colors: ['#A855F7', '#FBCFE8'],
+    captions: { on: false, style: 'karaoke', maxWords: 3, x: .5, y: .72, size: 1, color: '#FFFFFF', active: '#FFE600', strong: '#FF2B2B', font: 'Poppins', upper: true, star: false },
+    trans: ['fade', 'ink', 'leak', 'iris'],
+    audio: { beat: { on: true, bpm: 84, vol: .35, style: 'calmo' }, sfxAuto: false, duck: true },
+    build: (L, o) => [
+      ...(o.title ? [{ kind: 'text', start: .3, dur: 3.2, p: { text: o.title, font: 'Montserrat', size: .075, color: '#FFFFFF', stroke: '', bg: 'rgba(0,0,0,.35)', x: .5, y: .82, anim: 'fade', upper: true } }] : []),
+    ],
+  },
+  {
+    id: 'documentario', name: 'Documentário', desc: 'Formato deitado com faixas de cinema, cor de filme, nome na tela e legenda clássica.',
+    format: '16:9', colors: ['#1C1917', '#D6D3D1'],
+    captions: { on: true, style: 'classic', maxWords: 7, x: .5, y: .86, size: .75, color: '#FFFFFF', active: '#FFFFFF', strong: '#FDE68A', font: 'Poppins', upper: false, star: false },
+    trans: ['fade', 'dip'],
+    clipFx: [{ id: 'cinema', i: .6 }],
+    audio: { beat: { on: true, bpm: 78, vol: .22, style: 'calmo' }, sfxAuto: false, duck: true },
+    build: (L, o) => [
+      { kind: 'effect', start: 0, dur: L.total, p: { fx: 'letterbox', i: .4 } },
+      ...(o.title ? [{ kind: 'text', start: .5, dur: 3.5, p: { text: o.title, font: 'Montserrat', size: .08, color: '#FFFFFF', stroke: '', bg: '', x: .5, y: .45, anim: 'fade', upper: true } }] : []),
+      ...(o.handle ? [{ kind: 'lower', start: 4.5, dur: 4, p: { name: o.handle, role: '', color: '#D6D3D1', x: .05, y: .72 } }] : []),
+    ],
+  },
+  {
     id: 'limpo', name: 'Limpo (só legenda)', desc: 'Sem transições nem elementos: só a legenda karaokê e o enquadramento certo.',
     format: '9:16', colors: ['#FFFFFF', '#111111'],
     captions: { on: true, style: 'karaoke', maxWords: 3, x: .5, y: .7, size: 1, color: '#FFFFFF', active: '#FFE600', strong: '#FF2B2B', font: 'Poppins', upper: true, star: false },
@@ -220,6 +393,7 @@ export function applyTemplate(p, tpl, opt) {
   for (const c of p.clips) c.fx = (c.fx || []).filter(f => !f.tpl);
   if (FORMATS[tpl.format]) p.format = tpl.format;
   autoFit(p, tpl.fitAll);
+  for (const c of p.clips) { const m = p.media[c.mid]; if (m && m.kind === 'image') c.kb = tpl.kbAll ? true : c.kb; }
   if (opt.captions !== false) p.captions = { ...p.captions, ...tpl.captions };
   // transições
   const list = opt.trans !== false ? tpl.trans : ['none'];
@@ -239,7 +413,7 @@ export function applyTemplate(p, tpl, opt) {
   // elementos
   const L = layout(p);
   const o = { title: (opt.title || '').trim(), handle: (opt.handle || '').trim(), intro: opt.intro !== false, outro: opt.outro !== false };
-  for (const it of tpl.build(L, o)) {
+  for (const it of tpl.build(L, o, p)) {
     if (it.start >= L.total) continue;
     p.items.push({ id: uid(), kind: it.kind, start: Math.max(0, it.start), dur: Math.max(0.2, Math.min(it.dur, L.total - Math.max(0, it.start))), p: it.p, tpl: true });
   }

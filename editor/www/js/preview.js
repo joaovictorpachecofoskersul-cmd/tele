@@ -49,7 +49,13 @@ export class Preview {
         if (!this.playing) this.app.requestRender();
       });
       v.addEventListener('loadeddata', () => { if (!this.playing) this.app.requestRender(); });
-      e = { v, url, last: 0, canvas: null };
+      e = { v, url, last: 0, canvas: null, a: null };
+      // vídeo otimizado (cópia leve) não tem som: o som vem do arquivo original
+      if (url !== this.app.urlOf(c.mid)) {
+        const a = document.createElement('audio');
+        a.preload = 'auto'; a.src = this.app.urlOf(c.mid); a.muted = true;
+        e.a = a;
+      }
       this.pool.set(k, e);
       this._prune();
     }
@@ -63,6 +69,7 @@ export class Preview {
     const e = this.pool.get(k);
     if (!e) return;
     try { e.v.pause(); e.v.removeAttribute('src'); e.v.load(); } catch (x) { }
+    if (e.a) { try { e.a.pause(); e.a.removeAttribute('src'); e.a.load(); } catch (x) { } }
     this.pool.delete(k);
   }
 
@@ -116,7 +123,13 @@ export class Preview {
         if (Math.abs(v.currentTime - src) > 0.06 && !v.seeking) this._seek(v, src);
         v.play().catch(() => { });
       } else if (Math.abs(v.currentTime - src) > 0.6 && !v.seeking) this._seek(v, src);
+      if (e.a) {
+        if (e.a.playbackRate !== rate) e.a.playbackRate = rate;
+        if (e.a.paused) { if (Math.abs(e.a.currentTime - src) > 0.05) e.a.currentTime = src; e.a.play().catch(() => { }); }
+        else if (Math.abs(e.a.currentTime - src) > 0.25 && !e.a.seeking) e.a.currentTime = src;
+      }
     } else {
+      if (e.a && !e.a.paused) e.a.pause();
       if (this.playing) this.activeKeys.add(this.key(ci));
       if (!v.paused) v.pause();
       if (Math.abs(v.currentTime - src) > 0.03) { if (v.seeking) v._want = src; else this._seek(v, src); }
@@ -193,7 +206,7 @@ export class Preview {
   pause() {
     if (!this.playing) return;
     this.playing = false;
-    for (const e of this.pool.values()) { try { e.v.pause(); e.v.muted = true; } catch (x) { } }
+    for (const e of this.pool.values()) { try { e.v.pause(); e.v.muted = true; if (e.a) { e.a.pause(); e.a.muted = true; } } catch (x) { } }
     this._stopAudio();
     this.app.onPlayState(false);
     this.app.requestRender();
@@ -207,13 +220,15 @@ export class Preview {
     if (req) main = req.b && req.p >= 0.5 ? req.b.ci : req.a.ci;
     const mainKey = main != null && this.p.clips[main] ? this.key(main) : null;
     for (const [k, e] of this.pool) {
-      if (!this.activeKeys.has(k)) { if (!e.v.paused) e.v.pause(); e.v.muted = true; continue; }
+      if (!this.activeKeys.has(k)) { if (!e.v.paused) e.v.pause(); e.v.muted = true; if (e.a) { if (!e.a.paused) e.a.pause(); e.a.muted = true; } continue; }
       const on = k === mainKey && !this.remap && !this.app.recording;
-      if (e.v.muted === on) e.v.muted = !on;
+      const out = e.a || e.v;              // quem toca o som
+      if (e.a && !e.v.muted) e.v.muted = true;
+      if (out.muted === on) out.muted = !on;
       if (on) {
         const c = this.p.clips[main];
         const vol = Math.max(0, Math.min(1, (c.vol ?? 1) * (this.p.audio.voice ?? 1)));
-        if (Math.abs(e.v.volume - vol) > 0.01) e.v.volume = vol;
+        if (Math.abs(out.volume - vol) > 0.01) out.volume = vol;
       }
     }
   }

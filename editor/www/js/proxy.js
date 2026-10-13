@@ -29,7 +29,6 @@ export async function makeProxy(blob, m, onProgress, ctl = {}) {
   const vcodec = await MB.getFirstEncodableVideoCodec(['avc', 'vp9', 'vp8'], { width: portrait ? 720 : LONG, height: portrait ? LONG : 720 });
   if (!vcodec) throw new Error('sem codificador');
   const mp4 = vcodec === 'avc';
-  const acodec = await MB.getFirstEncodableAudioCodec(mp4 ? ['aac', 'opus'] : ['opus', 'vorbis']);
   const output = new MB.Output({
     format: mp4 ? new MB.Mp4OutputFormat({ fastStart: 'in-memory' }) : new MB.WebMOutputFormat(),
     target: new MB.BufferTarget(),
@@ -43,7 +42,7 @@ export async function makeProxy(blob, m, onProgress, ctl = {}) {
       allowRotationMetadata: false,
       codec: vcodec, bitrate: 2.5e6, frameRate: 30, keyFrameInterval: 0.5, forceTranscode: true,
     },
-    audio: acodec ? { codec: acodec, bitrate: 128e3 } : { discard: true },
+    audio: { discard: true },   // o som da prévia vem do arquivo original
   });
   if (!conv.isValid) throw new Error('não foi possível converter');
   ctl.cancel = () => conv.cancel();

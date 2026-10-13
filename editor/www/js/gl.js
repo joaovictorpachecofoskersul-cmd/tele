@@ -106,6 +106,20 @@ export class Engine {
 
   upload(key, source, w, h) {
     const gl = this.gl, t = this.texture(key);
+    // ImageBitmap ignora o "virar de cabeça para baixo" do WebGL: passa por um canvas antes.
+    // Como foto não muda entre quadros, só envia de novo quando a imagem for outra.
+    if (typeof ImageBitmap !== 'undefined' && source instanceof ImageBitmap) {
+      if (t.bmp === source) return t;
+      if (!t.cv) { t.cv = document.createElement('canvas'); }
+      t.cv.width = source.width; t.cv.height = source.height;
+      t.cv.getContext('2d').drawImage(source, 0, 0);
+      t.bmp = source;
+      gl.bindTexture(gl.TEXTURE_2D, t.tex);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, t.cv);
+      t.w = source.width; t.h = source.height;
+      return t;
+    }
+    t.bmp = null;
     gl.bindTexture(gl.TEXTURE_2D, t.tex);
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, source);
     t.w = w || source.videoWidth || source.displayWidth || source.width || 1;
