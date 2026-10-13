@@ -4,3 +4,8 @@ android/app/build/
 android/local.properties
 *.iml
 .idea/
+**/.gradle/
+**/build/
+editor/node_modules/
+editor/www/vendor/
+editor/www/fonts/

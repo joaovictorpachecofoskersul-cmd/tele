@@ -1,0 +1,39 @@
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    namespace = 'br.com.acreditar.editor'
+    compileSdk = 34
+
+    defaultConfig {
+        applicationId = 'br.com.acreditar.editor'
+        minSdk = 26
+        targetSdk = 34
+        versionCode = 1
+        versionName = '1.0'
+    }
+
+    buildTypes {
+        release { minifyEnabled = false }
+    }
+
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
+    }
+
+    // o editor (pasta editor/www) vai dentro do APK
+    sourceSets {
+        main { assets.srcDir '../../www' }
+    }
+
+    // o arquivo .wasm do reconhecimento de voz não deve ser comprimido de novo
+    androidResources {
+        noCompress += ['wasm', 'mjs']
+    }
+}
+
+dependencies {
+    implementation 'androidx.webkit:webkit:1.11.0'
+}
