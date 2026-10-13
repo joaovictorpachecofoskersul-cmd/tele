@@ -34,6 +34,13 @@ button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
 #rec-ind i{width:10px;height:10px;border-radius:50%;background:var(--accent);animation:blink 1s infinite}
 body.recording #rec-ind{display:flex}
 @keyframes blink{50%{opacity:.25}}
+#mic{display:none;align-items:center;gap:6px;background:rgba(0,0,0,.6);padding:5px 10px;border-radius:99px;font-size:13px;font-weight:600}
+#mic svg{width:16px;height:16px;fill:none;stroke:#fff;stroke-width:2;stroke-linecap:round}
+#mic b{display:block;width:44px;height:6px;border-radius:9px;background:rgba(255,255,255,.2);overflow:hidden}
+#mic u{display:block;height:100%;width:0;background:#34c759;border-radius:9px;transition:width .06s linear}
+#mic.off{background:rgba(255,59,48,.85)}
+#mic.off b{display:none}
+#mic.off svg{stroke:#fff}
 
 #bar{position:fixed;left:0;right:0;bottom:0;padding:10px 14px calc(16px + env(safe-area-inset-bottom,0px));
   background:linear-gradient(transparent,rgba(0,0,0,.75) 40%);z-index:4}
@@ -94,7 +101,7 @@ textarea{width:100%;min-height:34vh;resize:vertical;background:#0c0c0f;color:var
 
 <div id="prompter"><div id="flip"><div id="scroller"></div></div><div id="guide"></div></div>
 
-<div id="hud"><div id="rec-ind"><i></i><span id="clock">00:00</span></div></div>
+<div id="hud"><div id="mic"><svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M6 11a6 6 0 0 0 12 0M12 17v4"/></svg><span id="miclbl"></span><b><u id="micbar"></u></b></div><div id="rec-ind"><i></i><span id="clock">00:00</span></div></div>
 
 <div id="bar">
   <div id="speed">
@@ -238,25 +245,74 @@ prompter.addEventListener("pointerup",endDrag);
 prompter.addEventListener("pointercancel",function(){dragging=false});
 
 /* ---------- câmera ---------- */
-var stream=null;
-function stopCam(){if(stream){stream.getTracks().forEach(function(t){t.stop()});stream=null;}}
+var stream=null,camGen=0,camBusy=null;
+function killStream(s){if(s)s.getTracks().forEach(function(t){try{t.stop()}catch(e){}})}
+function stopCam(){camGen++;killStream(stream);stream=null;micMeter(null);}
+function audioOk(s){
+  var a=s&&s.getAudioTracks()[0];
+  return !!(a&&a.readyState==="live"&&a.enabled);
+}
+/* Abre câmera + microfone. Cada chamada invalida as anteriores: se duas aberturas
+   correrem juntas (ex.: janela de permissão do Android), a antiga é fechada e não
+   fica "segurando" o microfone, que era o que deixava vídeos sem som. */
 function startCam(){
   stopCam();
+  var gen=camGen;
   if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia){
     camErr("Este navegador não liberou o acesso à câmera. Abra pelo app ou por um endereço https:// no Chrome.");return Promise.resolve();
   }
   var v={facingMode:S.facing,width:{ideal:1920},height:{ideal:1080},frameRate:{ideal:30}};
-  return navigator.mediaDevices.getUserMedia({video:v,audio:{echoCancellation:true,noiseSuppression:true}})
-  .catch(function(){return navigator.mediaDevices.getUserMedia({video:v}).then(function(s){toast("Microfone não liberado: o vídeo vai sair sem som",3500);return s;});})
+  // sem cancelamento de eco: em vários Android ele liga o "modo chamada", que abafa ou zera o som
+  var a={echoCancellation:false,noiseSuppression:false,autoGainControl:false,channelCount:{ideal:2}};
+  var gum=function(c){return navigator.mediaDevices.getUserMedia(c)};
+  camBusy=gum({video:v,audio:a})
+  .catch(function(e){
+    if(gen!==camGen)throw e;
+    return gum({video:v,audio:true}).catch(function(){
+      if(gen!==camGen)throw e;
+      return gum({video:v}).then(function(s){s._noMic=true;return s});
+    });
+  })
   .then(function(s){
+    if(gen!==camGen){killStream(s);return}
     stream=s;cam.srcObject=s;cam.classList.toggle("mirror",S.facing==="user");
     $("#camerr").classList.remove("open");
     var p=cam.play();if(p&&p.catch)p.catch(function(){});
+    var at=s.getAudioTracks()[0];
+    if(at){at.onended=function(){if(stream===s)micMeter(null,"Microfone desligado")};}
+    micMeter(at||null,s._noMic?"Sem microfone":null);
+    if(s._noMic)toast("Microfone não liberado: o vídeo vai sair sem som. Libere o microfone nas permissões do app.",5000);
   })
   .catch(function(e){
+    if(gen!==camGen)return;
     camErr("Não consegui abrir a câmera ("+(e&&e.name||"erro")+"). Verifique se você permitiu o acesso à câmera e ao microfone nas permissões do app ou do navegador.");
   });
+  return camBusy;
 }
+
+/* medidor do microfone no canto da tela */
+var actx=null,meterSrc=null,meterRaf=0;
+function micMeter(track,errMsg){
+  cancelAnimationFrame(meterRaf);
+  if(meterSrc){try{meterSrc.disconnect()}catch(e){}meterSrc=null}
+  var box=$("#mic"),bar=$("#micbar"),lbl=$("#miclbl");
+  if(!track){box.classList.toggle("off",!!errMsg);lbl.textContent=errMsg||"";bar.style.width="0";box.style.display=errMsg?"flex":"none";return}
+  box.style.display="flex";box.classList.remove("off");lbl.textContent="";
+  try{
+    actx=actx||new (window.AudioContext||window.webkitAudioContext)();
+    if(actx.state==="suspended")actx.resume().catch(function(){});
+    meterSrc=actx.createMediaStreamSource(new MediaStream([track]));
+    var an=actx.createAnalyser();an.fftSize=512;meterSrc.connect(an);
+    var buf=new Uint8Array(an.fftSize);
+    (function loop(){
+      an.getByteTimeDomainData(buf);var pk=0;
+      for(var i=0;i<buf.length;i++){var d=Math.abs(buf[i]-128);if(d>pk)pk=d}
+      bar.style.width=Math.min(100,pk/128*260)+"%";
+      meterRaf=requestAnimationFrame(loop);
+    })();
+  }catch(e){}
+}
+document.addEventListener("pointerdown",function(){if(actx&&actx.state==="suspended")actx.resume().catch(function(){})},true);
 function camErr(m){$("#camerrMsg").textContent=m;$("#camerr").classList.add("open")}
 $("#retryCam").onclick=startCam;
 window.onAndroidPerms=startCam;
@@ -271,7 +327,8 @@ document.addEventListener("visibilitychange",function(){
 var rec=null,chunks=[],recStart=0,tick=null,lastBlob=null,lastUrl=null,counting=false,cancelCount=null;
 function isRec(){return rec&&rec.state!=="inactive"}
 function pickMime(){
-  var c=["video/mp4;codecs=avc1,mp4a","video/mp4","video/webm;codecs=vp9,opus","video/webm;codecs=vp8,opus","video/webm"];
+  // MP4 só com áudio AAC explícito: "video/mp4" genérico pode sair com Opus, que muitas galerias tocam mudo
+  var c=["video/mp4;codecs=avc1.42E01E,mp4a.40.2","video/mp4;codecs=avc1,mp4a.40.2","video/webm;codecs=vp8,opus","video/webm;codecs=vp9,opus","video/webm"];
   if(!window.MediaRecorder)return null;
   for(var i=0;i<c.length;i++){try{if(MediaRecorder.isTypeSupported(c[i]))return c[i]}catch(e){}}
   return "";
@@ -283,8 +340,17 @@ $("#recbtn").onclick=function(){
   if(pickMime()===null){toast("Este aparelho não suporta gravação de vídeo aqui");return}
   if(S.rew)pos=0,render();
   setPlaying(false);
-  if(S.count)countdown(3).then(function(ok){if(ok)startRec()});else startRec();
+  var go=function(){if(S.count)countdown(3).then(function(ok){if(ok)ensureMic().then(startRec)});else ensureMic().then(startRec)};
+  go();
 };
+/* antes de gravar, confere se o microfone está vivo; se não estiver, reabre câmera+mic */
+function ensureMic(){
+  if(audioOk(stream))return Promise.resolve();
+  toast("Reconectando o microfone...",1500);
+  return Promise.resolve(startCam()).then(function(){
+    if(!audioOk(stream))toast("Atenção: microfone indisponível, o vídeo vai sair sem som",4000);
+  });
+}
 function countdown(n){
   return new Promise(function(res){
     counting=true;var el=$("#count"),num=$("#countn");el.style.display="grid";num.textContent=n;
@@ -295,8 +361,9 @@ function countdown(n){
   });
 }
 function startRec(){
+  if(!stream){toast("A câmera não está ativa");return}
   chunks=[];var mime=pickMime();
-  try{rec=new MediaRecorder(stream,mime?{mimeType:mime,videoBitsPerSecond:8000000}:undefined)}
+  try{rec=new MediaRecorder(stream,mime?{mimeType:mime,videoBitsPerSecond:8000000,audioBitsPerSecond:128000}:undefined)}
   catch(e){try{rec=new MediaRecorder(stream)}catch(e2){toast("Não foi possível iniciar a gravação");return}}
   rec.ondataavailable=function(e){if(e.data&&e.data.size)chunks.push(e.data)};
   rec.onstop=onStop;
