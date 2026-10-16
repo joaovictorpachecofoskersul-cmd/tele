@@ -6,6 +6,9 @@ on:
     paths: [ 'editor/**', '.github/workflows/gerar-editor.yml' ]
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   apk:
     runs-on: ubuntu-latest
@@ -39,3 +42,11 @@ jobs:
         with:
           name: Editor-de-Video-APK
           path: EditorDeVideo.apk
+
+      - name: Publicar na página de downloads (Releases)
+        if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view editor-ultimo >/dev/null 2>&1 || gh release create editor-ultimo --title "Editor de Vídeo (última versão)" --notes "APK do Editor de Vídeo. Baixe o arquivo EditorDeVideo.apk e instale no celular."
+          gh release upload editor-ultimo EditorDeVideo.apk --clobber
