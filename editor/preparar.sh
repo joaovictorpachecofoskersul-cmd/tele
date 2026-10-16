@@ -16,4 +16,9 @@ for f in poppins/files/poppins-latin-400-normal poppins/files/poppins-latin-600-
          courier-prime/files/courier-prime-latin-700-normal; do
   cp "$NM/@fontsource/$f.woff2" www/fonts/
 done
+# recorte de pessoa e detector de rosto (MediaPipe, Apache 2.0), funcionam sem internet
+mkdir -p www/vendor/mpseg www/vendor/mpface
+for d in selfie_segmentation:mpseg face_detection:mpface; do
+  find "$NM/@mediapipe/${d%%:*}" -maxdepth 1 -type f \( -name '*.js' -o -name '*.wasm' -o -name '*.data' -o -name '*.binarypb' -o -name '*.tflite' \) -exec cp {} "www/vendor/${d##*:}/" \;
+done
 echo "Bibliotecas prontas."

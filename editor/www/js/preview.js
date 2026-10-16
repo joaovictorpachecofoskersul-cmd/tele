@@ -7,6 +7,7 @@ import { frameRequest, layout, clipIndexAt, clipDur } from './project.js';
 import { FX_BY_ID } from './effects.js';
 import { sfx, makeBeat, SR } from './audio.js';
 import { sfxEvents } from './mix.js';
+import { segment } from './vision.js';
 
 export class Preview {
   constructor(app) {
@@ -133,6 +134,59 @@ export class Preview {
       if (this.playing) this.activeKeys.add(this.key(ci));
       if (!v.paused) v.pause();
       if (Math.abs(v.currentTime - src) > 0.03) { if (v.seeking) v._want = src; else this._seek(v, src); }
+    }
+    if (v.readyState >= 2 && v.videoWidth) return this._source(e);
+    return null;
+  }
+
+  // máscara do recorte de pessoa. Na reprodução não espera: usa a última pronta e calcula a próxima.
+  mask(ci, src, fr) {
+    const c = this.p.clips[ci];
+    return c ? this._mask('mk:' + c.id, src, fr) : null;
+  }
+  itemMask(it, src, fr) { return this._mask('mi:' + it.id, src, fr); }
+  _mask(k, src, fr) {
+    let st = this.masks && this.masks.get(k);
+    if (!this.masks) this.masks = new Map();
+    if (!st) { st = { canvas: document.createElement('canvas'), t: -1, busy: false, ok: false }; this.masks.set(k, st); }
+    const want = Math.round(src * 30) / 30;
+    if (st.t === want && st.ok) return st.canvas;
+    if (!st.busy) {
+      st.busy = true;
+      const p = segment(fr.source, fr.w, fr.h, st.canvas).then(r => { st.busy = false; if (r) { st.ok = true; st.t = want; if (!this.playing) this.app.requestRender(); } })
+        .catch(() => { st.busy = false; });
+      if (!this.playing || !st.ok) return p.then(() => st.ok ? st.canvas : null);
+    }
+    return st.ok ? st.canvas : null;
+  }
+
+  // vídeo sobreposto (PiP / tela dividida): um <video> por elemento, sincronizado com o tempo
+  async itemFrame(it, src) {
+    const m = this.p.media[it.p.mid];
+    if (!m) return null;
+    if (m.kind === 'image') { const b = await this.image(it.p.mid); return { source: b, w: b.width, h: b.height }; }
+    const k = 'pip:' + it.id;
+    const url = this.app.previewUrlOf(it.p.mid);
+    let e = this.pool.get(k);
+    if (e && e.url !== url) { this._drop(k); e = null; }
+    if (!e) {
+      const v = document.createElement('video');
+      v.muted = true; v.playsInline = true; v.preload = 'auto'; v.setAttribute('playsinline', ''); v.src = url;
+      v.addEventListener('seeked', () => { if (!this.playing) this.app.requestRender(); });
+      v.addEventListener('loadeddata', () => { if (!this.playing) this.app.requestRender(); });
+      e = { v, url, last: 0, canvas: null, a: null };
+      this.pool.set(k, e); this._prune(8);
+    }
+    e.last = performance.now();
+    const v = e.v;
+    src = Math.max(0, Math.min(m.dur - 0.05, src));
+    if (this.playing) {
+      this.activeKeys.add(k);
+      if (v.paused) { if (Math.abs(v.currentTime - src) > 0.08) this._seek(v, src); v.play().catch(() => { }); }
+      else if (Math.abs(v.currentTime - src) > 0.5 && !v.seeking) this._seek(v, src);
+    } else {
+      if (!v.paused) v.pause();
+      if (Math.abs(v.currentTime - src) > 0.03 && !v.seeking) this._seek(v, src);
     }
     if (v.readyState >= 2 && v.videoWidth) return this._source(e);
     return null;
@@ -272,7 +326,8 @@ export class Preview {
     }
     // narrações / áudios soltos na linha do tempo
     for (const it of this.p.items) {
-      if (it.kind !== 'audio' || it.start + it.dur <= t) continue;
+      const pipSound = it.kind === 'pip' && (it.p.vol ?? 0) > 0 && this.p.media[it.p.mid] && this.p.media[it.p.mid].hasAudio;
+      if ((it.kind !== 'audio' && !pipSound) || it.start + it.dur <= t) continue;
       const b = await this._decoded(it.p.mid);
       if (!b) continue;
       const s = ac.createBufferSource(); s.buffer = b;

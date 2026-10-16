@@ -1,4 +1,5 @@
 // Exportação: decodifica quadro a quadro, renderiza com efeitos e codifica em MP4 (H.264 + AAC) no próprio aparelho.
+import { segment } from './vision.js';
 import * as MB from '../vendor/mediabunny.min.mjs';
 import { Renderer } from './render.js';
 import { layout, dims, clipDur } from './project.js';
@@ -147,11 +148,33 @@ class ExportProvider {
     }
     return r.frame(src);
   }
+  async mask(ci, src, fr) {
+    if (!this.maskCanvas) this.maskCanvas = document.createElement('canvas');
+    try { return await segment(fr.source, fr.w, fr.h, this.maskCanvas); } catch (e) { return null; }
+  }
+  async itemMask(it, src, fr) {
+    this.itemMasks = this.itemMasks || new Map();
+    if (!this.itemMasks.has(it.id)) this.itemMasks.set(it.id, document.createElement('canvas'));
+    try { return await segment(fr.source, fr.w, fr.h, this.itemMasks.get(it.id)); } catch (e) { return null; }
+  }
+  async itemFrame(it, src) {
+    const m = this.p.media[it.p.mid];
+    if (!m) return null;
+    if (m.kind === 'image') {
+      if (!this.images.has(it.p.mid)) this.images.set(it.p.mid, await createImageBitmap(await this.app.getBlob(it.p.mid)));
+      const b = this.images.get(it.p.mid); return { source: b, w: b.width, h: b.height };
+    }
+    const k = 'pip:' + it.id;
+    let r = this.readers.get(k);
+    if (!r) { r = new ClipReader(await this.app.getBlob(it.p.mid), this.app.urlOf(it.p.mid), 0); await r.open(src); this.readers.set(k, r); }
+    return r.frame(Math.max(0, Math.min(m.dur - 0.02, src)));
+  }
   // fecha leitores de clipes que já passaram
   gc(t, L) {
     this.p.clips.forEach((c, i) => {
       if (L.starts[i] + clipDur(c) + 1.5 < t && this.readers.has(c.id)) { this.readers.get(c.id).close(); this.readers.delete(c.id); }
     });
+    for (const it of this.p.items) if (it.kind === 'pip' && it.start + it.dur + 1 < t && this.readers.has('pip:' + it.id)) { this.readers.get('pip:' + it.id).close(); this.readers.delete('pip:' + it.id); }
   }
   close() { for (const r of this.readers.values()) r.close(); this.readers.clear(); for (const b of this.images.values()) b.close(); }
 }

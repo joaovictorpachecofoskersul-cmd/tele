@@ -505,7 +505,7 @@ export function applyTemplate(p, tpl, opt) {
   const o = { title: (opt.title || '').trim(), handle: (opt.handle || '').trim(), intro: opt.intro !== false, outro: opt.outro !== false };
   for (const it of tpl.build(L, o, p)) {
     if (it.start >= L.total) continue;
-    p.items.push({ id: uid(), kind: it.kind, start: Math.max(0, it.start), dur: Math.max(0.2, Math.min(it.dur, L.total - Math.max(0, it.start))), p: JSON.parse(JSON.stringify(it.p)), tpl: true });
+    p.items.push({ id: uid(), kind: it.kind, start: Math.max(0, it.start), dur: Math.max(0.2, Math.min(it.dur, L.total - Math.max(0, it.start))), p: JSON.parse(JSON.stringify(it.p)), ...(it.kf ? { kf: JSON.parse(JSON.stringify(it.kf)) } : {}), tpl: true });
   }
   return p;
 }

@@ -13,6 +13,7 @@ import { needsProxy, makeProxy } from './proxy.js';
 import * as P from './panels.js';
 import { h, $, toast, confirmBox, promptBox, btn } from './ui.js';
 import { svgIcon } from './icons.js';
+import { itemBase, clipBase, upsertKf } from './kf.js';
 
 const isApp = !!(window.Android && window.Android.begin);
 
@@ -92,6 +93,7 @@ async function openProject(p) {
     await preloadBlobs();
     for (const it of p.items) if (it.kind === 'image' && it.p.mid) await loadItemImage(it.p.mid);
     if (p.captions && p.captions.marker && p.captions.marker.mid) await loadItemImage(p.captions.marker.mid);
+    for (const c of p.clips) if (c.seg && c.seg.mid) await loadItemImage(c.seg.mid);
     setTimeout(optimizeInBackground, 500);
     $('#home').hidden = true; $('#editor').hidden = false;
     $('#pname').textContent = p.name;
@@ -332,6 +334,64 @@ app.recordNarration = async () => {
   rec.start(500);
   app.setTime(start);
   app.preview.play();
+};
+
+app.importVideoForItem = async () => {
+  const [f] = await pickFiles('video/*,image/*', false);
+  if (!f) return null;
+  busy({ title: 'Importando vídeo', detail: f.name });
+  try {
+    const m = await addMedia(f);
+    if (m.kind === 'image') await loadItemImage(m.id);
+    setTimeout(optimizeInBackground, 300);
+    return m.id;
+  } catch (e) { toast('Não consegui abrir o vídeo: ' + e.message, 4000); return null; } finally { busyDone(); }
+};
+
+// Enquadramento automático: procura o rosto ao longo do clipe e guarda o caminho (suavizado)
+app.trackFaces = async clip => {
+  const m = app.project.media[clip.mid];
+  if (!m || m.kind !== 'video') { toast('O enquadramento automático é para vídeos'); return false; }
+  const ctl = { stop: false };
+  busy({ title: 'Procurando o rosto', detail: 'Carregando o detector', progress: 0, cancel: () => { ctl.stop = true; } });
+  const v = document.createElement('video');
+  v.muted = true; v.playsInline = true; v.preload = 'auto'; v.src = app.previewUrlOf(clip.mid);
+  try {
+    const { faces } = await import('./vision.js');
+    await new Promise((res, rej) => { v.onloadeddata = res; v.onerror = () => rej(new Error('não abriu o vídeo')); setTimeout(() => rej(new Error('tempo esgotado')), 20000); });
+    const step = 0.4, raw = [];
+    const a = clip.in, b = clip.out;
+    for (let t = a; t <= b + 0.001 && !ctl.stop; t += step) {
+      v.currentTime = Math.min(m.dur - 0.05, t);
+      await new Promise(r => { v.onseeked = r; setTimeout(r, 4000); });
+      const fs = await faces(v, v.videoWidth, v.videoHeight);
+      raw.push({ t, f: fs[0] || null });
+      busyUpdate({ progress: (t - a) / Math.max(0.1, b - a), detail: `${Math.round(100 * (t - a) / Math.max(0.1, b - a))}%` });
+    }
+    if (ctl.stop) return false;
+    const found = raw.filter(r => r.f).length;
+    if (!found) { toast('Não encontrei rosto neste clipe', 4000); return false; }
+    // preenche buracos e suaviza (sem tremedeira: só anda se mudar de verdade)
+    let last = raw.find(r => r.f).f;
+    const pts = raw.map(r => { if (r.f) last = r.f; return { t: r.t, x: last.x, y: last.y }; });
+    const sm = pts.map((p, i) => {
+      const w = pts.slice(Math.max(0, i - 2), i + 3);
+      return { t: p.t, x: w.reduce((s, q) => s + q.x, 0) / w.length, y: w.reduce((s, q) => s + q.y, 0) / w.length };
+    });
+    const out = [sm[0]];
+    for (const p of sm.slice(1)) { const q = out[out.length - 1]; if (Math.hypot(p.x - q.x, p.y - q.y) > 0.035) out.push(p); else out.push({ t: p.t, x: q.x, y: q.y }); }
+    clip.track = out.map(p => ({ t: +p.t.toFixed(2), x: +p.x.toFixed(4), y: +p.y.toFixed(4) }));
+    clip.reframe = true;
+    if ((clip.fit || 'cover') !== 'cover') clip.fit = 'cover';
+    app.commit();
+    toast(`Rosto encontrado em ${Math.round(100 * found / raw.length)}% do clipe. O enquadramento segue a pessoa.`, 4000);
+    return true;
+  } catch (e) {
+    toast('Não consegui analisar: ' + e.message, 5000); return false;
+  } finally {
+    v.removeAttribute('src'); v.load();
+    busyDone();
+  }
 };
 
 app.importImageForItem = async () => {
@@ -745,6 +805,8 @@ function updateToolbar() {
       tool('speed', 'Velocidade', () => P.clipPanel(app, clip, 'speed')),
       tool('volume', 'Volume', () => P.clipPanel(app, clip, 'vol')),
       tool('crop', 'Enquadrar', () => P.clipPanel(app, clip, 'frame')),
+      tool('kf', 'Animação', () => P.clipPanel(app, clip, 'anim')),
+      tool('person', 'Pessoa', () => P.clipPanel(app, clip, 'person')),
       tool('effects', 'Efeitos', () => P.clipPanel(app, clip, 'fx')),
       tool('pause', 'Pausas', () => app.cutSilences([clip])),
       tool('duplicate', 'Duplicar', () => app.duplicateClip(clip)),
@@ -755,6 +817,7 @@ function updateToolbar() {
     bar.append(back('Item', () => { app.select(null); }));
     row.append(
       tool('pencil', 'Editar', () => P.itemPanel(app, item)),
+      ...(!['sfx', 'audio', 'effect'].includes(item.kind) ? [tool('kf', 'Keyframe', () => { const lt = Math.max(0, Math.min(item.dur, app.time - item.start)); upsertKf(item, lt, itemBase(item, lt)); app.commit(); toast('Ponto marcado. Mude o tempo e arraste o elemento para animar.'); })] : []),
       tool('cursor', 'No cursor', () => { app.moveItem(item, app.time); app.commit(); }),
       tool('play', 'Ver', () => app.replayItem(item)),
       tool('duplicate', 'Duplicar', () => app.duplicateItem(item)),
@@ -778,6 +841,7 @@ function updateToolbar() {
       tool('music', 'Áudio', () => openLevel('audio')),
       tool('text', 'Texto', () => openLevel('texto')),
       tool('captions', 'Legendas', () => P.captionsPanel(app)),
+      tool('overlay', 'Sobrepor', () => P.elementsPanel(app, 'Vídeo')),
       tool('sticker', 'Elementos', () => P.elementsPanel(app)),
       tool('chart', 'Gráficos', () => P.elementsPanel(app, 'Gráficos')),
       tool('effects', 'Efeitos', () => P.effectsPanel(app)),
@@ -822,7 +886,7 @@ function bindStage() {
     c.setPointerCapture(e.pointerId);
     pts.set(e.pointerId, norm(e));
     if (pts.size === 2 && drag && drag.type === 'frame') {
-      const [a, b] = [...pts.values()]; drag.d0 = Math.hypot(a.x - b.x, a.y - b.y); drag.z0 = drag.clip.zoom || 1;
+      const [a, b] = [...pts.values()]; drag.d0 = Math.hypot(a.x - b.x, a.y - b.y); drag.z0 = drag.kfc ? clipBase(drag.clip, drag.lt).zoom : (drag.clip.zoom || 1);
       return;
     }
     if (pts.size > 1) return;
@@ -833,13 +897,17 @@ function bindStage() {
       const it = app.project.items.find(i => i.id === target.id);
       const was = app.sel && app.sel.id === it.id;
       if (!was) app.select(target);
-      drag = { type: 'item', it, n0: n, x0: it.p.x, y0: it.p.y, moved: false, was };
+      const kfxy = (it.kf || []).some(k => k.x != null || k.y != null);
+      const b0 = kfxy ? itemBase(it, app.time - it.start) : null;
+      drag = { type: 'item', it, n0: n, x0: kfxy ? b0.x : it.p.x, y0: kfxy ? b0.y : it.p.y, moved: false, was, kfxy };
     } else if (target && target.type === 'captions') {
       const was = app.sel && app.sel.type === 'captions';
       if (!was) app.select(target);
       drag = { type: 'cap', n0: n, x0: app.project.captions.x, y0: app.project.captions.y, moved: false, was };
     } else if (clip && app.framing) {
-      drag = { type: 'frame', clip, n0: n, x0: clip.x || 0, y0: clip.y || 0, moved: false };
+      const ci = app.project.clips.indexOf(clip), lt = app.time - layout(app.project).starts[ci];
+      const kfc = (clip.kf || []).length > 0, b0 = clipBase(clip, lt);
+      drag = { type: 'frame', clip, n0: n, x0: b0.x, y0: b0.y, moved: false, kfc, lt };
     } else drag = { type: 'tap', n0: n, moved: false };
   });
   c.addEventListener('pointermove', e => {
@@ -847,15 +915,22 @@ function bindStage() {
     pts.set(e.pointerId, norm(e));
     if (drag.type === 'frame' && pts.size === 2 && drag.d0) {
       const [a, b] = [...pts.values()];
-      drag.clip.zoom = clamp(drag.z0 * Math.hypot(a.x - b.x, a.y - b.y) / drag.d0, 0.3, 4); drag.moved = true; app.live(); return;
+      const z = clamp(drag.z0 * Math.hypot(a.x - b.x, a.y - b.y) / drag.d0, 0.3, 4);
+      if (drag.kfc) upsertKf(drag.clip, drag.lt, { zoom: z }); else drag.clip.zoom = z;
+      drag.moved = true; app.live(); return;
     }
     const n = norm(e), dx = n.x - drag.n0.x, dy = n.y - drag.n0.y;
     if (Math.abs(dx) + Math.abs(dy) > 0.01) drag.moved = true;
     if (!drag.moved) return;
-    if (drag.type === 'item' && drag.x0 != null) { drag.it.p.x = clamp(drag.x0 + dx, -0.2, 1.2); if (drag.y0 != null) drag.it.p.y = clamp(drag.y0 + dy, -0.1, 1.1); app.live(); }
-    if (drag.type === 'item' && drag.x0 == null && drag.y0 != null) { drag.it.p.y = clamp(drag.y0 + dy, 0, 1); app.live(); }
+    if (drag.type === 'item' && drag.kfxy) { upsertKf(drag.it, app.time - drag.it.start, { x: clamp(drag.x0 + dx, -0.4, 1.4), y: clamp(drag.y0 + dy, -0.3, 1.3) }); app.live(); }
+    else if (drag.type === 'item' && drag.x0 != null) { drag.it.p.x = clamp(drag.x0 + dx, -0.2, 1.2); if (drag.y0 != null) drag.it.p.y = clamp(drag.y0 + dy, -0.1, 1.1); app.live(); }
+    else if (drag.type === 'item' && drag.x0 == null && drag.y0 != null) { drag.it.p.y = clamp(drag.y0 + dy, 0, 1); app.live(); }
     if (drag.type === 'cap') { app.project.captions.x = clamp(drag.x0 + dx, 0.1, 0.9); app.project.captions.y = clamp(drag.y0 + dy, 0.05, 0.95); app.live(); }
-    if (drag.type === 'frame') { drag.clip.x = clamp(drag.x0 + dx, -0.8, 0.8); drag.clip.y = clamp(drag.y0 + dy, -0.8, 0.8); app.live(); }
+    if (drag.type === 'frame') {
+      const v = { x: clamp(drag.x0 + dx, -0.8, 0.8), y: clamp(drag.y0 + dy, -0.8, 0.8) };
+      if (drag.kfc) upsertKf(drag.clip, drag.lt, v); else { drag.clip.x = v.x; drag.clip.y = v.y; }
+      app.live();
+    }
   });
   const end = e => {
     pts.delete(e.pointerId);

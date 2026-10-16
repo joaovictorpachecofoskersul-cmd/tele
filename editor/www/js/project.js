@@ -1,3 +1,4 @@
+import { interp } from './kf.js';
 // Modelo do projeto e cálculos da linha do tempo.
 import { TRANS_BY_ID, FX_BY_ID, remapTime } from './effects.js';
 
@@ -166,6 +167,15 @@ export function splitClipAt(p, t) {
   const d = JSON.parse(JSON.stringify(c));
   d.id = uid();
   c.out = s; d.in = s;
+  // animação por pontos: cada metade fica com os seus pontos (tempo local)
+  if (c.kf && c.kf.length) {
+    const cut = t - L.starts[i];
+    const mid = interp(c.kf, cut);
+    c.kf.push({ t: cut - 0.001, e: 'suave', ...mid }); c.kf.push({ t: cut, e: 'suave', ...mid });
+    c.kf.sort((a, b) => a.t - b.t);
+    d.kf = c.kf.filter(k => k.t >= cut).map(k => ({ ...k, t: k.t - cut }));
+    c.kf = c.kf.filter(k => k.t < cut);
+  }
   d.trans = c.trans; c.trans = { id: 'none', dur: 0.4, text: 'WOW' };
   p.clips.splice(i + 1, 0, d);
   return true;

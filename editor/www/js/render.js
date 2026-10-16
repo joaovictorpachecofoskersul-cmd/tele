@@ -5,6 +5,18 @@ import { FX_BY_ID } from './effects.js';
 import { drawItems } from './overlays.js';
 import { drawCaptions, buildPages } from './captions.js';
 import { cssFont } from './fonts.js';
+import { interp } from './kf.js';
+
+// posição do rosto no instante da mídia (suavizada entre amostras)
+function trackAt(tr, st) {
+  if (st <= tr[0].t) return tr[0];
+  const last = tr[tr.length - 1];
+  if (st >= last.t) return last;
+  let i = 0; while (i < tr.length - 1 && tr[i + 1].t <= st) i++;
+  const a = tr[i], b = tr[i + 1], q = (st - a.t) / Math.max(1e-3, b.t - a.t);
+  const e = q * q * (3 - 2 * q);
+  return { x: a.x + (b.x - a.x) * e, y: a.y + (b.y - a.y) * e };
+}
 
 export class Renderer {
   constructor(outCanvas) {
@@ -56,10 +68,44 @@ export class Renderer {
     let src;
     if (fr && fr.source) src = eng.upload('src' + slot, fr.source, fr.w, fr.h);
     else src = eng.texs.get('src' + slot) || eng.black;
-    const local = Math.max(0, Math.min(1, (t - L.starts[req.ci]) / clipDur(c)));
-    let zoom = c.zoom || 1;
+    const lt = t - L.starts[req.ci];
+    const local = Math.max(0, Math.min(1, lt / clipDur(c)));
+    // keyframes do enquadramento
+    const kv = c.kf && c.kf.length ? interp(c.kf, lt) : {};
+    let zoom = kv.zoom ?? (c.zoom || 1);
+    let ox = kv.x ?? (c.x || 0), oy = kv.y ?? (c.y || 0);
     if (c.kb) zoom *= 1 + 0.12 * local;           // zoom lento automático em fotos
-    let cur = eng.place(src, { fit: c.fit, zoom, x: c.x, y: c.y }, eng.fbo(slot));
+    // enquadramento automático seguindo o rosto
+    if (c.reframe && c.track && c.track.length && (c.fit || 'cover') === 'cover' && src.w > 1) {
+      const f = trackAt(c.track, req.src);
+      if (f) {
+        const sa = src.w / src.h, oa = eng.w / eng.h;
+        const sx = (sa > oa ? sa / oa : 1) * zoom, sy = (sa > oa ? 1 : oa / sa) * zoom;
+        const mx = Math.max(0, (sx - 1) / 2), my = Math.max(0, (sy - 1) / 2);
+        ox += Math.max(-mx, Math.min(mx, -(f.x - 0.5) * sx));
+        oy += Math.max(-my, Math.min(my, (0.5 - (f.y + 0.06)) * sy));   // um pouco abaixo do rosto: deixa espaço acima da cabeça
+      }
+    }
+    const place = { fit: c.fit, zoom, x: ox, y: oy };
+    let cur = eng.place(src, place, eng.fbo(slot));
+    // recorte de pessoa: troca o fundo
+    const sg = c.seg;
+    if (sg && sg.mode && sg.mode !== 'off' && provider.mask && fr && fr.source) {
+      const mk = await provider.mask(req.ci, req.src, fr);
+      if (mk) {
+        const mt = eng.upload('mask' + slot, mk, mk.width, mk.height);
+        const mp = eng.place(mt, { ...place, fit: c.fit === 'blur' ? 'contain' : c.fit, bgGray: 0 }, eng.fbo(slot + 'mk'));
+        let bg;
+        if (sg.mode === 'blur') bg = eng.blurBg(cur, slot);
+        else if (sg.mode === 'bw') bg = eng.gray(cur, 0.85, eng.fbo(slot + 'g'));
+        else if (sg.mode === 'dark') bg = eng.gray(cur, 0.25, eng.fbo(slot + 'g'));
+        else if (sg.mode === 'image' && sg.mid && this.images.get(sg.mid)) {
+          const im = this.images.get(sg.mid);
+          bg = eng.place(eng.upload('segbg' + slot, im, im.width, im.height), { fit: 'cover' }, eng.fbo(slot + 'g'));
+        } else bg = eng.solid(sg.color || '#00B140');
+        cur = eng.segComposite(cur, mp, bg, sg.thr ?? 0.5, sg.soft ?? 0.15, eng.fbo(slot + 'sc'));
+      }
+    }
     let k = 0;
     for (const f of c.fx || []) {
       const fx = FX_BY_ID[f.id];
@@ -76,6 +122,18 @@ export class Renderer {
     const W = this.out.width, H = this.out.height;
     const L = opt.layout || layout(p);
     const req = frameRequest(p, t, L);
+    // vídeos sobrepostos (PiP): busca o quadro de cada um antes de desenhar
+    const pips = new Map();
+    for (const it of p.items) {
+      if (it.kind !== 'pip' || t < it.start || t >= it.start + it.dur || !provider.itemFrame) continue;
+      const st = (it.p.in || 0) + (t - it.start) * (it.p.speed || 1);
+      try {
+        const fr = await provider.itemFrame(it, st);
+        let mask = null;
+        if (fr && it.p.cut && provider.itemMask) mask = await provider.itemMask(it, st, fr);
+        pips.set(it.id, { fr, mask });
+      } catch (e) { /* segue sem esse vídeo */ }
+    }
     let main;
     if (!req) {
       main = eng.copy(eng.black, eng.fbo('M'));
@@ -105,6 +163,7 @@ export class Renderer {
     const env = {
       scratch: (w, h) => this.scratch(w, h),
       image: mid => this.images.get(mid),
+      pip: id => pips.get(id),
       total: L.total,
     };
     const items = drawItems(ctx, p, t, W, H, env);

@@ -40,6 +40,9 @@ const P = {
   export: '<path d="M12 15V3M7 8l5-5 5 5"/><path d="M5 13v6a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-6"/>',
   beat: '<circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="3"/><path d="M12 3.5v2M12 18.5v2"/>',
   retain: '<path d="M12 21a9 9 0 1 1 9-9"/><path d="M12 7v5l3 2"/><path d="M17 17l4 4M21 17v4h-4"/>',
+  kf: '<path d="M12 4l5 8-5 8-5-8z"/><path d="M3 12h3M18 12h3"/>',
+  person: '<circle cx="12" cy="8" r="3.5"/><path d="M5 20c.8-4 3.6-6 7-6s6.2 2 7 6"/><path d="M3 3h3M3 3v3M21 3h-3M21 3v3M3 21h3M3 21v-3M21 21h-3M21 21v-3"/>',
+  overlay: '<rect x="3" y="4" width="14" height="11" rx="1.5"/><rect x="10" y="10" width="11" height="10" rx="1.5" fill="currentColor" fill-opacity=".25"/>',
   freeze: '<path d="M12 2v20M4 6.5l16 11M4 17.5l16-11"/>',
 };
 

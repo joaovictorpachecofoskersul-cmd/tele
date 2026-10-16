@@ -8,6 +8,7 @@ import { FONT_CHOICES } from './fonts.js';
 import { SFX_LIST, BEAT_STYLES, ELEMENT_SFX } from './audio.js';
 import { QUALITIES, PLATFORMS, platformSettings } from './export.js';
 import { BG_CHOICES } from './cartelas.js';
+import { EASES, ITEM_PRESETS, CLIP_PRESETS, interp, upsertKf, kfAt, itemBase, clipBase } from './kf.js';
 import { MARKERS, MARKER_POS, defaultMarker } from './markers.js';
 import { FORMATS, layout, clipDur, transDur, fmtTime } from './project.js';
 
@@ -20,12 +21,15 @@ export function clipPanel(app, clip, tab = 'speed') {
   const body = h('div');
   const tabs = chips([
     { id: 'speed', name: 'Velocidade' }, { id: 'vol', name: 'Volume' }, { id: 'frame', name: 'Enquadrar' },
+    { id: 'anim', name: 'Animação' }, { id: 'person', name: 'Pessoa e rosto' },
     { id: 'fx', name: 'Efeitos do clipe' }, { id: 'more', name: 'Mais' },
   ], tab, id => fill(id), 'tabs');
+  const ci = () => app.project.clips.indexOf(clip);
+  const cstart = () => layout(app.project).starts[ci()] || 0;
   const area = h('div');
   body.append(tabs, area);
   function fill(t) {
-    app.framing = t === 'frame';
+    app.framing = t === 'frame' || t === 'anim';
     area.innerHTML = '';
     if (t === 'speed') {
       area.append(
@@ -44,12 +48,40 @@ export function clipPanel(app, clip, tab = 'speed') {
     if (t === 'frame') {
       area.append(
         chips([{ id: 'cover', name: 'Preencher' }, { id: 'blur', name: 'Caber + fundo desfocado' }, { id: 'contain', name: 'Caber + fundo preto' }], clip.fit, v => { clip.fit = v; app.commit(); }),
-        slider('Zoom', 0.5, 3, 0.01, clip.zoom || 1, v => { clip.zoom = v; app.live(); }, v => v.toFixed(2).replace('.', ',') + 'x', () => app.commit()),
-        slider('Horizontal', -0.6, 0.6, 0.005, clip.x || 0, v => { clip.x = v; app.live(); }, v => Math.round(v * 100), () => app.commit()),
-        slider('Vertical', -0.6, 0.6, 0.005, clip.y || 0, v => { clip.y = v; app.live(); }, v => Math.round(v * 100), () => app.commit()),
+        (clip.kf || []).length ? h('p', { class: 'hint' }, 'Este clipe tem animação por pontos: ajuste o zoom e a posição na aba Animação.') : null,
+        (clip.kf || []).length ? null : slider('Zoom', 0.5, 3, 0.01, clip.zoom || 1, v => { clip.zoom = v; app.live(); }, v => v.toFixed(2).replace('.', ',') + 'x', () => app.commit()),
+        (clip.kf || []).length ? null : slider('Horizontal', -0.6, 0.6, 0.005, clip.x || 0, v => { clip.x = v; app.live(); }, v => Math.round(v * 100), () => app.commit()),
+        (clip.kf || []).length ? null : slider('Vertical', -0.6, 0.6, 0.005, clip.y || 0, v => { clip.y = v; app.live(); }, v => Math.round(v * 100), () => app.commit()),
         toggle('Zoom lento automático', clip.kb, v => { clip.kb = v; app.commit(); }),
         h('p', { class: 'hint' }, 'Dica: com esta aba aberta, arraste o vídeo na prévia para reposicionar e use dois dedos para dar zoom.'),
         btn('Aplicar este enquadramento em todos os clipes', () => { for (const c of app.project.clips) { c.fit = clip.fit; c.zoom = clip.zoom; c.x = clip.x; c.y = clip.y; } app.commit(); toast('Aplicado em todos'); }),
+      );
+    }
+    if (t === 'anim') {
+      const st = cstart(), d = clipDur(clip);
+      if (app.time < st || app.time > st + d) app.setTime(st + 0.001);
+      area.append(kfSection(app, { obj: clip, start: st, dur: d, base: lt => clipBase(clip, lt), keys: KF_CLIP_KEYS, presets: CLIP_PRESETS }),
+        h('p', { class: 'hint' }, 'Com esta aba aberta, arraste o vídeo na prévia ou use dois dedos: muda o ponto do cursor.'));
+    }
+    if (t === 'person') {
+      const sg = clip.seg = clip.seg || { mode: 'off', color: '#00B140', thr: .5, soft: .15 };
+      const isVid = m.kind === 'video';
+      area.append(
+        section('Seguir o rosto (enquadramento automático)',
+          h('p', { class: 'hint' }, 'O app procura o rosto ao longo do clipe e move o enquadramento para a pessoa ficar no centro. Ótimo para vídeo deitado virar vertical.'),
+          h('div', { class: 'brow' },
+            btn(clip.track ? '↻ Procurar de novo' : '🎯 Seguir o rosto', async () => { if (await app.trackFaces(clip)) fill('person'); }, clip.track ? '' : 'pri'),
+            clip.track ? toggle('Ligado', clip.reframe, v => { clip.reframe = v; app.commit(); }) : null)),
+        section('Recortar a pessoa (trocar o fundo)',
+          chips([{ id: 'off', name: 'Desligado' }, { id: 'blur', name: 'Fundo desfocado' }, { id: 'bw', name: 'Fundo preto e branco' }, { id: 'dark', name: 'Fundo escuro' }, { id: 'color', name: 'Cor' }, { id: 'image', name: 'Imagem' }], sg.mode, async v => {
+            if (v === 'image' && !sg.mid) { const mid = await app.importImageForItem(); if (!mid) { fill('person'); return; } sg.mid = mid; }
+            sg.mode = v; app.commit(); fill('person');
+          }),
+          sg.mode === 'color' ? swatches(sg.color, v => { sg.color = v; app.commit(); }, { colors: ['#00B140', '#000000', '#FFFFFF', '#EB1E28', '#FFDE00', '#173B32', '#1E3A8A', '#A855F7'] }) : null,
+          sg.mode === 'image' ? btn('Trocar imagem do fundo', async () => { const mid = await app.importImageForItem(); if (mid) { sg.mid = mid; app.commit(); } }) : null,
+          sg.mode !== 'off' ? slider('Quanto da pessoa entra', 0.2, 0.8, 0.01, 1 - (sg.thr ?? .5), v => { sg.thr = 1 - v; app.live(); }, pct, () => app.commit()) : null,
+          sg.mode !== 'off' ? slider('Suavidade da borda', 0.02, 0.4, 0.01, sg.soft ?? .15, v => { sg.soft = v; app.live(); }, pct, () => app.commit()) : null,
+          h('p', { class: 'hint' }, isVid ? 'Funciona melhor com uma pessoa de frente. Na primeira vez o recorte demora uns segundos para carregar.' : 'Funciona com fotos de pessoas.')),
       );
     }
     if (t === 'fx') {
@@ -159,7 +191,7 @@ const GROUP_OF = {
   text: 'Texto', stamp: 'Texto', counter: 'Texto', censor: 'Texto', knockout: 'Texto', card: 'Texto', lower: 'Texto', pill: 'Texto', bubble: 'Texto', module: 'Texto',
   follow: 'Redes sociais', like: 'Redes sociais', click: 'Redes sociais', tap: 'Redes sociais', bell: 'Redes sociais', notif: 'Redes sociais', swipe: 'Redes sociais', comment: 'Redes sociais', poll: 'Redes sociais', share: 'Redes sociais',
   arrows: 'Destaques', arrow: 'Destaques', circle: 'Destaques', emoji: 'Destaques', confetti: 'Destaques', floaters: 'Destaques', progress: 'Destaques', blurbox: 'Destaques', image: 'Destaques',
-  checklist: 'Dados', people: 'Dados', map: 'Dados', bars: 'Dados',
+  checklist: 'Dados', people: 'Dados', map: 'Dados', bars: 'Dados', pip: 'Vídeo',
 };
 const RED = '#EB1E28', YEL = '#FFDE00';
 // kits prontos com as identidades (estilos)
@@ -237,7 +269,7 @@ function renderThumb(e) {
 
 export function elementsPanel(app, startTab) {
   const all = [...ELEMENTS, ...KITS];
-  const groups = ['Destaques', 'Texto', 'Redes sociais', 'Retenção', 'Cartelas', 'Gráficos', 'Dados', 'Kits'];
+  const groups = ['Vídeo', 'Destaques', 'Texto', 'Redes sociais', 'Retenção', 'Cartelas', 'Gráficos', 'Dados', 'Kits'];
   let tab = startTab || lsGet('ed.elTab', 'Recentes');
   let q = '';
   const tabs = h('div', { class: 'etabs' });
@@ -246,9 +278,11 @@ export function elementsPanel(app, startTab) {
   const add = async e => {
     const p = JSON.parse(JSON.stringify(e.p));
     if (e.needsImage) { const mid = await app.importImageForItem(); if (!mid) return; p.mid = mid; }
+    let vdur = 0;
+    if (e.needsVideo && !p.mid) { const mid = await app.importVideoForItem(); if (!mid) return; p.mid = mid; const mm = app.project.media[mid]; if (mm && mm.kind === 'video') vdur = mm.dur; }
     const rec = lsGet('ed.recentEl', []).filter(k => k !== keyOf(e) || e.mine);
     if (!e.mine) { rec.unshift(keyOf(e)); lsSet('ed.recentEl', rec.slice(0, 24)); }
-    const dur = e.dur || (e.whole ? layout(app.project).total : /^c_/.test(e.kind) ? 5 : e.kind === 'card' ? 2.5 : e.kind === 'confetti' ? 2.5 : e.kind === 'stamp' ? 1.8 : e.kind === 'r_frame' || e.kind === 'r_cta' ? 5 : 3);
+    const dur = vdur ? Math.max(0.5, Math.min(vdur, layout(app.project).total - app.time)) : e.dur || (e.whole ? layout(app.project).total : /^c_/.test(e.kind) ? 5 : e.kind === 'card' ? 2.5 : e.kind === 'confetti' ? 2.5 : e.kind === 'stamp' ? 1.8 : e.kind === 'r_frame' || e.kind === 'r_cta' ? 5 : 3);
     const it = app.addItem(e.kind, p, e.whole ? 0 : null, dur);
     itemPanel(app, it);
   };
@@ -295,7 +329,7 @@ export function elementsPanel(app, startTab) {
   app.openSheet('Elementos', h('div', {}, tabs, search, hint, grid));
 }
 
-const ICON = { c_year: '📅', c_period: '⏳', c_date: '📆', c_timeline: '⇥', c_two: '⇄', c_list: '☰', c_phrase: '❝', c_quote: '❞', c_final: '▣', g_vbars: '▥', g_line: '📈', g_pie: '◔', g_ring: '◯', g_poll: '⚖', g_versus: '✕', g_table: '▦', g_countdown: '⏱', g_odometer: '🔢', r_cta: '★', r_headline: '📰', r_nametag: '🏷', r_blink: '⚡', r_frame: '▢', r_money: '$', pill: '⬭', checklist: '☑', people: '👥', map: '🗺', bars: '▥', module: '▣', floaters: '◌', blurbox: '▒', like: '♥', click: '↖', tap: '☝', bell: '🔔', notif: '▭', swipe: '⌃', comment: '💬', poll: '▤', arrows: '»', share: '↪', text: '𝐓', stamp: '⛝', counter: '#', censor: '▬', knockout: '◩', card: '▣', emoji: '☺', arrow: '➜', circle: '◯', confetti: '✺', progress: '▭', image: '🖼', lower: '▤', follow: '♥', bubble: '💬' };
+const ICON = { pip: '▣', c_year: '📅', c_period: '⏳', c_date: '📆', c_timeline: '⇥', c_two: '⇄', c_list: '☰', c_phrase: '❝', c_quote: '❞', c_final: '▣', g_vbars: '▥', g_line: '📈', g_pie: '◔', g_ring: '◯', g_poll: '⚖', g_versus: '✕', g_table: '▦', g_countdown: '⏱', g_odometer: '🔢', r_cta: '★', r_headline: '📰', r_nametag: '🏷', r_blink: '⚡', r_frame: '▢', r_money: '$', pill: '⬭', checklist: '☑', people: '👥', map: '🗺', bars: '▥', module: '▣', floaters: '◌', blurbox: '▒', like: '♥', click: '↖', tap: '☝', bell: '🔔', notif: '▭', swipe: '⌃', comment: '💬', poll: '▤', arrows: '»', share: '↪', text: '𝐓', stamp: '⛝', counter: '#', censor: '▬', knockout: '◩', card: '▣', emoji: '☺', arrow: '➜', circle: '◯', confetti: '✺', progress: '▭', image: '🖼', lower: '▤', follow: '♥', bubble: '💬' };
 
 
 // rótulos dos campos das cartelas, gráficos e elementos de retenção
@@ -339,6 +373,59 @@ function genericFields(app, it, body, live, commit) {
   if (!it.kind.startsWith('c_')) body.append(slider('Tamanho geral', 0.4, 2, 0.05, q.scale ?? 1, x => { q.scale = x; live(); }, pct, commit));
   if (it.kind.startsWith('c_')) body.append(h('p', { class: 'hint' }, 'A cartela cobre a tela inteira. Use "Sobre o vídeo" no fundo para ver o vídeo por trás.'));
 }
+
+
+// ------------------------------------------------------------------ keyframes (animação ponto a ponto)
+// o: {obj, start (tempo do início na linha do tempo), dur, base(lt), keys:[{k,name,min,max,step,fmt}], presets}
+function kfSection(app, o) {
+  const box = h('div');
+  const lt = () => Math.max(0, Math.min(o.dur, app.time - o.start));
+  const draw = () => {
+    box.innerHTML = '';
+    const obj = o.obj, list = obj.kf || [], t = lt(), cur = kfAt(obj, t);
+    const b = o.base(t);
+    box.append(h('p', { class: 'hint' }, 'Marque pontos no tempo. Em cada ponto você define posição, tamanho e giro; entre eles o app anima sozinho. Com pontos marcados, arrastar na prévia muda o ponto do cursor.'));
+    const strip = h('div', { class: 'kfstrip' });
+    const bar = h('div', { class: 'kfbar' });
+    for (const k of list) {
+      const d = h('button', { class: 'kfd' + (k === cur ? ' on' : ''), type: 'button', style: { left: (100 * k.t / Math.max(0.01, o.dur)) + '%' } }, '◆');
+      d.addEventListener('click', () => { app.setTime(o.start + k.t + 0.001); draw(); });
+      bar.append(d);
+    }
+    bar.append(h('div', { class: 'kfcur', style: { left: (100 * t / Math.max(0.01, o.dur)) + '%' } }));
+    strip.append(bar);
+    box.append(strip, h('div', { class: 'brow' },
+      btn(cur ? '◆ Ponto marcado aqui' : '◆ Marcar ponto aqui', () => { upsertKf(obj, t, b); app.commit(); draw(); }, cur ? 'sm' : 'pri sm'),
+      cur ? btn('Apagar este ponto', () => { obj.kf = list.filter(k => k !== cur); app.commit(); draw(); }, 'sm') : null,
+      list.length ? btn('◀', () => { const k = [...list].reverse().find(k => k.t < t - 0.01); if (k) { app.setTime(o.start + k.t + 0.001); draw(); } }, 'sm') : null,
+      list.length ? btn('▶', () => { const k = list.find(k => k.t > t + 0.01); if (k) { app.setTime(o.start + k.t + 0.001); draw(); } }, 'sm') : null,
+      list.length ? btn('Limpar animação', () => { obj.kf = []; app.commit(); draw(); }, 'sm danger') : null));
+    if (list.length) {
+      for (const k of o.keys) {
+        box.append(slider(k.name + ' (no cursor)', k.min, k.max, k.step, b[k.k], v => { upsertKf(obj, lt(), { [k.k]: v }); app.live(); }, k.fmt, () => { app.commit(); draw(); }));
+      }
+      if (cur) box.append(section('Movimento até o próximo ponto', chips(EASES, cur.e || 'suave', v => { cur.e = v; app.commit(); })));
+    }
+    box.append(section('Animações prontas', h('div', { class: 'brow' }, o.presets.map(pr => btn(pr.name, () => {
+      obj.kf = pr.make(o.base(0), o.dur).map(k => ({ e: 'suave', ...k }));
+      app.commit(); app.setTime(o.start + 0.001); if (app.preview && !app.preview.playing) app.preview.play(); draw();
+    }, 'sm')))));
+  };
+  draw();
+  return box;
+}
+const KF_ITEM_KEYS = [
+  { k: 'x', name: 'Horizontal', min: -0.4, max: 1.4, step: 0.005, fmt: v => Math.round(v * 100) },
+  { k: 'y', name: 'Vertical', min: -0.3, max: 1.3, step: 0.005, fmt: v => Math.round(v * 100) },
+  { k: 's', name: 'Tamanho', min: 0.05, max: 4, step: 0.01, fmt: v => Math.round(v * 100) + '%' },
+  { k: 'r', name: 'Giro', min: -360, max: 360, step: 1, fmt: v => Math.round(v) + '°' },
+  { k: 'o', name: 'Opacidade', min: 0, max: 1, step: 0.01, fmt: v => Math.round(v * 100) + '%' },
+];
+const KF_CLIP_KEYS = [
+  { k: 'zoom', name: 'Zoom', min: 0.5, max: 4, step: 0.01, fmt: v => v.toFixed(2).replace('.', ',') + 'x' },
+  { k: 'x', name: 'Horizontal', min: -0.8, max: 0.8, step: 0.005, fmt: v => Math.round(v * 100) },
+  { k: 'y', name: 'Vertical', min: -0.8, max: 0.8, step: 0.005, fmt: v => Math.round(v * 100) },
+];
 
 // ------------------------------------------------------------------ editor de item
 export function itemPanel(app, it) {
@@ -526,8 +613,50 @@ export function itemPanel(app, it) {
         return b;
       }))), slider('Volume', 0, 1.5, 0.05, q.vol ?? 0.8, v => { q.vol = v; }, pct, commit));
       break;
+    case 'pip': {
+      const m = app.project.media[q.mid] || {};
+      body.append(
+        h('div', { class: 'brow' },
+          btn('Trocar vídeo', async () => { const mid = await app.importVideoForItem(); if (mid) { q.mid = mid; q.in = 0; const mm = app.project.media[mid]; if (mm && mm.kind === 'video') it.dur = Math.min(mm.dur, Math.max(0.5, L.total - it.start)); commit(); itemPanel(app, it); } }),
+          btn('Tela inteira', () => { Object.assign(q, { x: .5, y: .5, w: 1, h: 1, shape: 'rect', border: '', bw: 0, shadow: false }); commit(); itemPanel(app, it); })),
+        section('Lugar', chips([
+          { id: 'canto', name: 'Canto' }, { id: 'circ', name: 'Círculo no canto' }, { id: 'cima', name: 'Metade de cima' }, { id: 'baixo', name: 'Metade de baixo' },
+          { id: 'esq', name: 'Metade esquerda' }, { id: 'dir', name: 'Metade direita' }, { id: 'g1', name: 'Grade 1' }, { id: 'g2', name: 'Grade 2' }, { id: 'g3', name: 'Grade 3' }, { id: 'g4', name: 'Grade 4' },
+        ], null, v => {
+          const L2 = { canto: { x: .74, y: .2, w: .42, h: .26, shape: 'round' }, circ: { x: .8, y: .78, w: .36, h: .36, shape: 'circle' }, cima: { x: .5, y: .25, w: 1, h: .5, shape: 'rect' }, baixo: { x: .5, y: .75, w: 1, h: .5, shape: 'rect' },
+            esq: { x: .25, y: .5, w: .5, h: 1, shape: 'rect' }, dir: { x: .75, y: .5, w: .5, h: 1, shape: 'rect' }, g1: { x: .25, y: .25, w: .5, h: .5, shape: 'rect' }, g2: { x: .75, y: .25, w: .5, h: .5, shape: 'rect' }, g3: { x: .25, y: .75, w: .5, h: .5, shape: 'rect' }, g4: { x: .75, y: .75, w: .5, h: .5, shape: 'rect' } }[v];
+          Object.assign(q, L2); if (L2.shape === 'rect') { q.shadow = false; } commit();
+        })),
+        section('Forma', chips([{ id: 'round', name: 'Cantos redondos' }, { id: 'rect', name: 'Retângulo' }, { id: 'circle', name: 'Círculo' }], q.shape, v => { q.shape = v; commit(); })),
+        slider('Largura', 0.1, 1, 0.005, q.w, v => { q.w = v; live(); }, pct, commit),
+        slider('Altura', 0.1, 1, 0.005, q.h, v => { q.h = v; live(); }, pct, commit),
+        slider('Zoom dentro', 1, 3, 0.01, q.zoom || 1, v => { q.zoom = v; live(); }, v => v.toFixed(2).replace('.', ',') + 'x', commit),
+        slider('Ajuste horizontal', -0.5, 0.5, 0.005, q.ox || 0, v => { q.ox = v; live(); }, v => Math.round(v * 100), commit),
+        slider('Ajuste vertical', -0.5, 0.5, 0.005, q.oy || 0, v => { q.oy = v; live(); }, v => Math.round(v * 100), commit),
+        section('Borda', swatches(q.border || null, v => { q.border = v; if (v && !q.bw) q.bw = .006; commit(); }, { none: true, colors: ['#FFFFFF', '#000000', '#FFDE00', '#EB1E28', '#22C55E', '#3B82F6'] })),
+        q.border ? slider('Espessura da borda', 0.002, 0.03, 0.001, q.bw || .006, v => { q.bw = v; live(); }, v => Math.round(v * 1000), commit) : null,
+        toggle('Sombra', q.shadow, v => { q.shadow = v; commit(); }),
+        toggle('Recortar a pessoa (tirar o fundo deste vídeo)', q.cut, v => { q.cut = v; if (v) q.fit = 'contain'; commit(); }),
+        section('Entrada', chips([{ id: 'pop', name: 'Pular' }, { id: 'fade', name: 'Aparecer' }, { id: 'none', name: 'Nenhuma' }], q.anim, v => { q.anim = v; commit(); app.replayItem(it); })),
+        m.kind === 'video' ? slider('Começar o vídeo em', 0, Math.max(0.1, (m.dur || 1) - 0.2), 0.05, q.in || 0, v => { q.in = v; live(); }, sec, commit) : null,
+        m.kind === 'video' && m.hasAudio ? slider('Volume do som deste vídeo', 0, 1.5, 0.05, q.vol ?? 0, v => { q.vol = v; }, pct, commit) : null,
+        h('p', { class: 'hint' }, 'Arraste na prévia para mudar de lugar. O vídeo de baixo continua tocando por trás.'),
+      );
+      break;
+    }
     default:
       if (/^[cgr]_/.test(it.kind)) genericFields(app, it, body, live, commit);
+  }
+  if (!['sfx', 'audio', 'effect'].includes(it.kind)) {
+    const kfBody = h('div');
+    const open = h('details', { class: 'kfwrap' }, h('summary', {}, '◆ Animação por pontos (keyframes)' + ((it.kf || []).length ? ` · ${it.kf.length} pontos` : '')), kfBody);
+    open.addEventListener('toggle', () => {
+      if (!open.open || kfBody.childNodes.length) return;
+      if (app.time < it.start || app.time > it.start + it.dur) app.setTime(it.start + 0.001);
+      kfBody.append(kfSection(app, { obj: it, start: it.start, dur: it.dur, base: lt => itemBase(it, lt), keys: KF_ITEM_KEYS, presets: ITEM_PRESETS }));
+    });
+    if ((it.kf || []).length) { open.open = true; }
+    body.append(open);
   }
   if (ELEMENT_SFX[it.kind]) body.append(toggle('Som automático deste elemento', q.sound !== false, v => { q.sound = v; commit(); }));
 

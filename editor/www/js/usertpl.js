@@ -26,7 +26,7 @@ export function captureTemplate(p, name, id) {
     let anchor = 'start', off = it.start;
     if (it.start < 0.05 && end > total - 0.1) anchor = 'whole';
     else if (it.start > total * 0.5) { anchor = 'end'; off = total - it.start; }
-    return { kind: it.kind, p: clone(it.p), anchor, off, dur: it.dur };
+    return { kind: it.kind, p: clone(it.p), anchor, off, dur: it.dur, kf: it.kf && it.kf.length ? clone(it.kf) : undefined };
   });
   const mids = new Set();
   for (const it of items) if (it.p.mid) mids.add(it.p.mid);
@@ -81,9 +81,9 @@ export function toTemplate(u) {
     captions: u.captions, trans: u.trans, transDur: u.transDur, clipFx: u.clipFx,
     audio: u.audio, music: u.music, media: u.media,
     build: L => u.items.map(it => {
-      if (it.anchor === 'whole') return { kind: it.kind, start: 0, dur: L.total, p: it.p };
+      if (it.anchor === 'whole') return { kind: it.kind, start: 0, dur: L.total, p: it.p, kf: it.kf };
       const start = it.anchor === 'end' ? Math.max(0, L.total - it.off) : it.off;
-      return { kind: it.kind, start, dur: it.dur, p: it.p };
+      return { kind: it.kind, start, dur: it.dur, p: it.p, kf: it.kf };
     }),
   };
 }

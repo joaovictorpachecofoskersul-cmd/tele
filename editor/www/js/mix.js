@@ -98,7 +98,8 @@ export async function mixProject(p, getBlob, onProgress = () => { }) {
   }
   // narrações / áudios soltos na linha do tempo (contam como voz para o ducking)
   for (const it of p.items) {
-    if (it.kind !== 'audio' || !p.media[it.p.mid]) continue;
+    const pipSound = it.kind === 'pip' && (it.p.vol ?? 0) > 0 && p.media[it.p.mid] && p.media[it.p.mid].hasAudio;
+    if ((it.kind !== 'audio' && !pipSound) || !p.media[it.p.mid]) continue;
     try {
       const a = it.p.in || 0;
       const [nl, nr] = await decodeRange(await getBlob(it.p.mid), a, a + it.dur);

@@ -16,6 +16,9 @@ vec4 f(vec2 uv){
   if (inside(s) < .5) { return uD.z > .5 ? vec4(texture(uB, uv).rgb*.55, 1.) : vec4(vec3(uSeed), 1.); }
   return texture(uA, s);
 }`;
+// recorte de pessoa: mistura o fundo (uB) e a pessoa (uA) pela máscara (uM.r). uC.x = limiar, uC.y = suavidade
+const SEGC = `vec4 f(vec2 uv){ vec4 fg = texture(uA, uv); float m = texture(uM, uv).r; float a = smoothstep(uC.x - uC.y, uC.x + uC.y, m); return vec4(mix(texture(uB, uv).rgb, fg.rgb, a), 1.); }`;
+const GRAY = `vec4 f(vec2 uv){ vec3 c = texture(uA, uv).rgb; float g = dot(c, vec3(.299,.587,.114)); return vec4(vec3(g)*uC.x, 1.); }`;
 const COPY = `vec4 f(vec2 uv){ return texture(uA, uv); }`;
 const BLUR = `vec4 f(vec2 uv){ vec4 acc=vec4(0); for(int i=-4;i<=4;i++){ acc += texture(uA, uv + uC.xy*float(i)); } return acc/9.; }`;
 
@@ -208,6 +211,29 @@ export class Engine {
     if (!fx) return A;
     return this.pass('f:' + fx.id, fx.glsl, { A, Prev: prev }, { P: p, T: t, I: intensity, C: extra || [0, 0, 0, 0] }, target);
   }
+
+  solid(hex) {
+    const key = 'solid:' + hex;
+    if (!this.texs.has(key)) {
+      const n = parseInt(String(hex).replace('#', '').padEnd(6, '0').slice(0, 6), 16);
+      this.texs.set(key, this._solid([(n >> 16) & 255, (n >> 8) & 255, n & 255, 255]));
+    }
+    return this.texs.get(key);
+  }
+
+  // fundo desfocado forte de uma textura já posicionada
+  blurBg(src, name) {
+    const sw = Math.max(8, Math.round(this.w / 16)), sh = Math.max(8, Math.round(this.h / 16));
+    const s1 = this.fbo(name + 'b1', sw, sh), s2 = this.fbo(name + 'b2', sw, sh);
+    this.pass('copy', COPY, { A: src }, {}, s1);
+    for (let i = 0; i < 2; i++) {
+      this.pass('blur', BLUR, { A: s1 }, { C: [1.6 / sw, 0, 0, 0] }, s2);
+      this.pass('blur', BLUR, { A: s2 }, { C: [0, 1.6 / sh, 0, 0] }, s1);
+    }
+    return s1;
+  }
+  gray(src, k, target) { return this.pass('gray', GRAY, { A: src }, { C: [k, 0, 0, 0] }, target); }
+  segComposite(fg, mask, bg, thr, soft, target) { return this.pass('segc', SEGC, { A: fg, B: bg, M: mask }, { C: [thr, soft, 0, 0] }, target); }
 
   copy(src, target) { return this.pass('copy', COPY, { A: src }, {}, target); }
 }
