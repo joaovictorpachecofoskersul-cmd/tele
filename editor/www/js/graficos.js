@@ -55,6 +55,43 @@ function cross(ctx, x, y, s, color) {   // ✕ desenhado
 }
 
 export const GRAFICO_DRAW = {
+  // barras em corrida: tabela "Ano, A, B, C" com uma linha por ano; as barras trocam de lugar
+  g_race(ctx, it, t, W, H) {
+    return base(ctx, it, t, W, H, ({ q, pal, local, U, cx, cy, stroke }) => {
+      const lines = String(q.data || '').split('\n').map(l => l.split(/[;,\t|]/).map(x => x.trim())).filter(l => l.length > 1 && l.some(Boolean));
+      if (lines.length < 3) return null;
+      const names = lines[0].slice(1);
+      const rows = lines.slice(1).map(l => ({ k: l[0], v: names.map((_, i) => parseFloat(String(l[i + 1] || '0').replace(/\./g, '').replace(',', '.')) || 0) }));
+      const span = Math.max(0.5, (it.dur / (q.speed || 1)) - 1.2);
+      const pos = cl((local - 0.4) / span) * (rows.length - 1);
+      const i0 = Math.floor(pos), i1 = Math.min(rows.length - 1, i0 + 1), f = eio(pos - i0);
+      const vals = names.map((n, j) => rows[i0].v[j] + (rows[i1].v[j] - rows[i0].v[j]) * f);
+      // posição de cada barra (ordenada pelo valor) também desliza
+      const rank = a => { const o = names.map((n, j) => j).sort((x, y) => a[y] - a[x]); const r = []; o.forEach((j, k) => r[j] = k); return r; };
+      const r0 = rank(rows[i0].v), r1 = rank(rows[i1].v);
+      const show = Math.min(names.length, q.top || 6);
+      const gw = Math.min(W * 0.86, U * 1.2), bh = U * 0.07, gap = U * 0.022;
+      const top = cy - (show * (bh + gap)) / 2 + U * 0.03;
+      const mx = Math.max(1e-9, ...vals);
+      const colors = String(q.colors || '#EB1E28,#FFDE00,#3B82F6,#22C55E,#A855F7,#F97316,#EC4899,#14B8A6').split(',').map(x => x.trim());
+      T(ctx, q.title, cx, top - U * 0.11, U * 0.055, pal.text, { stroke, maxw: gw });
+      const lw = gw * 0.3;
+      names.forEach((n, j) => {
+        const rk = r0[j] + (r1[j] - r0[j]) * f;
+        if (rk > show - 0.01) return;
+        const y = top + rk * (bh + gap);
+        const w = (gw - lw - U * 0.12) * vals[j] / mx;
+        ctx.fillStyle = colors[j % colors.length];
+        roundRect(ctx, cx - gw / 2 + lw, y, Math.max(2, w), bh, bh * 0.2); ctx.fill();
+        T(ctx, n, cx - gw / 2 + lw - U * 0.015, y + bh / 2, U * 0.034, pal.text, { align: 'right', maxw: lw - U * 0.02, stroke });
+        T(ctx, fmt(vals[j], +q.dec || 0) + (q.suffix || ''), cx - gw / 2 + lw + w + U * 0.012, y + bh / 2, U * 0.032, pal.text, { align: 'left', stroke, weight: 800 });
+      });
+      const yr = rows[f > 0.5 ? i1 : i0].k;
+      T(ctx, yr, cx + gw / 2, top + show * (bh + gap) + U * 0.02, U * 0.09, pal.accent || YEL, { align: 'right', stroke, alpha: 0.9 });
+      return { x: cx - gw / 2, y: top - U * 0.15, w: gw, h: show * (bh + gap) + U * 0.28 };
+    });
+  },
+
   g_ring(ctx, it, t, W, H) {
     return base(ctx, it, t, W, H, ({ q, pal, local, U, cx, cy, stroke }) => {
       const pct = +q.pct || 0, r = U * 0.26, esp = U * 0.055;
@@ -297,6 +334,7 @@ export const GRAFICO_DRAW = {
 
 const G = (kind, name, p) => ({ kind, name, group: 'Gráficos', p: { bg: 'none', fonte: '', speed: 1, x: .5, y: .45, ...p } });
 export const GRAFICO_ELEMENTS = [
+  G('g_race', 'Barras em corrida', { title: 'RANKING AO LONGO DOS ANOS', data: 'Ano, Brasil, México, Argentina, Chile\n2000, 10, 14, 8, 5\n2005, 18, 16, 9, 7\n2010, 30, 20, 12, 9\n2015, 26, 25, 13, 12\n2020, 34, 24, 11, 15', top: 6, suffix: '', colors: '' }),
   G('g_vbars', 'Barras verticais', { title: 'TÍTULO DO GRÁFICO', data: 'Norte: 42\nNordeste: 35\nCentro-Oeste: 12\nSudeste: 8\nSul: 3', highlight: 'Norte', suffix: '', color: RED }),
   G('g_line', 'Linha que se desenha', { title: 'EVOLUÇÃO', data: '2003: 10\n2008: 18\n2013: 30\n2018: 22\n2023: 38\n2026: 45', suffix: '', color: RED }),
   G('g_pie', 'Pizza / rosca', { title: 'DIVISÃO', data: 'Sim: 58\nNão: 30\nNão sabe: 12', highlight: 'Sim', donut: true }),

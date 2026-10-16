@@ -29,6 +29,7 @@ export class Renderer {
     this.pagesKey = -1;
     this.scratchCanvas = null;
     this.images = new Map();      // mid -> ImageBitmap (para elemento "imagem")
+    this.luts = new Map();        // mid -> {n, data} (LUT .cube)
     this.lastBoxes = { captions: null, items: [] };
   }
 
@@ -88,6 +89,19 @@ export class Renderer {
     }
     const place = { fit: c.fit, zoom, x: ox, y: oy };
     let cur = eng.place(src, place, eng.fbo(slot));
+    // ajuste de cor e LUT
+    const a = c.adj;
+    if (a && (a.bri || a.con || a.sat || a.temp || a.tint || a.vig || a.sharp || a.shadow)) cur = eng.adjust(cur, a, eng.fbo(slot + 'adj'));
+    if (c.lut && c.lut.mid && this.luts.get(c.lut.mid)) {
+      const L3 = this.luts.get(c.lut.mid);
+      cur = eng.lut(cur, eng.lutTexture('lut:' + c.lut.mid, L3), L3.n, c.lut.k ?? 1, eng.fbo(slot + 'lut'));
+    }
+    // fundo de outra cor (chroma key)
+    const ky = c.key;
+    if (ky && ky.on) {
+      const bg = this._bg(ky, cur, slot);
+      cur = eng.chroma(cur, bg, ky.color || '#00FF00', ky.sim ?? .4, ky.soft ?? .1, ky.spill ?? .6, eng.fbo(slot + 'key'));
+    }
     // recorte de pessoa: troca o fundo
     const sg = c.seg;
     if (sg && sg.mode && sg.mode !== 'off' && provider.mask && fr && fr.source) {
@@ -95,14 +109,7 @@ export class Renderer {
       if (mk) {
         const mt = eng.upload('mask' + slot, mk, mk.width, mk.height);
         const mp = eng.place(mt, { ...place, fit: c.fit === 'blur' ? 'contain' : c.fit, bgGray: 0 }, eng.fbo(slot + 'mk'));
-        let bg;
-        if (sg.mode === 'blur') bg = eng.blurBg(cur, slot);
-        else if (sg.mode === 'bw') bg = eng.gray(cur, 0.85, eng.fbo(slot + 'g'));
-        else if (sg.mode === 'dark') bg = eng.gray(cur, 0.25, eng.fbo(slot + 'g'));
-        else if (sg.mode === 'image' && sg.mid && this.images.get(sg.mid)) {
-          const im = this.images.get(sg.mid);
-          bg = eng.place(eng.upload('segbg' + slot, im, im.width, im.height), { fit: 'cover' }, eng.fbo(slot + 'g'));
-        } else bg = eng.solid(sg.color || '#00B140');
+        const bg = this._bg(sg, cur, slot);
         cur = eng.segComposite(cur, mp, bg, sg.thr ?? 0.5, sg.soft ?? 0.15, eng.fbo(slot + 'sc'));
       }
     }
@@ -114,6 +121,19 @@ export class Renderer {
       cur = eng.effect(fx.id, cur, local, t, f.i ?? fx.def.i, fx.params ? fx.params(f) : [f.bpm || 126, 0, 0, 0], eng.fbo('prev'), tgt);
     }
     return cur;
+  }
+
+  // fundo usado no recorte de pessoa e no chroma key
+  _bg(o, cur, slot) {
+    const eng = this.eng;
+    if (o.mode === 'blur') return eng.blurBg(cur, slot);
+    if (o.mode === 'bw') return eng.gray(cur, 0.85, eng.fbo(slot + 'g'));
+    if (o.mode === 'dark') return eng.gray(cur, 0.25, eng.fbo(slot + 'g'));
+    if (o.mode === 'image' && o.mid && this.images.get(o.mid)) {
+      const im = this.images.get(o.mid);
+      return eng.place(eng.upload('bgimg' + slot, im, im.width, im.height), { fit: 'cover' }, eng.fbo(slot + 'g'));
+    }
+    return eng.solid(o.mode === 'color' ? (o.bgColor || o.color || '#000000') : '#000000');
   }
 
   // provider.frame(ci, srcTime, slot) -> {source, w, h} | null

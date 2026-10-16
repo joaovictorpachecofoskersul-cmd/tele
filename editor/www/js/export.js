@@ -180,7 +180,7 @@ class ExportProvider {
 }
 
 export async function exportVideo(app, opt, onProgress, abort) {
-  const p = JSON.parse(JSON.stringify(app.project));
+  const p = JSON.parse(JSON.stringify(opt.project || app.project));
   const [W0, H0] = dims(p);
   const sc = opt.scale && opt.scale < 1 ? opt.scale : 1;
   const W = Math.round(W0 * sc / 2) * 2, H = Math.round(H0 * sc / 2) * 2;
@@ -202,6 +202,7 @@ export async function exportVideo(app, opt, onProgress, abort) {
   const canvas = document.createElement('canvas'); canvas.width = W; canvas.height = H;
   const R = new Renderer(canvas); R.setSize(W, H);
   for (const [k, v] of app.renderer.images) R.images.set(k, v);
+  for (const [k, v] of app.renderer.luts) R.luts.set(k, v);
   const output = new MB.Output({ format: mp4 ? new MB.Mp4OutputFormat({ fastStart: 'in-memory' }) : new MB.WebMOutputFormat(), target: new MB.BufferTarget() });
   const vs = new MB.CanvasSource(canvas, { codec: vcodec, bitrate: opt.bitrate, keyFrameInterval: 2 });
   output.addVideoTrack(vs, { frameRate: fps });

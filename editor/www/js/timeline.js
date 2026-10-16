@@ -1,6 +1,6 @@
 // Linha do tempo estilo CapCut: cursor fixo no meio, arrastar para navegar, pinça para zoom.
 import { h } from './ui.js';
-import { layout, clipDur, transDur, assignLanes, clamp } from './project.js';
+import { layout, clipDur, transDur, assignLanes, clamp, srcOffset } from './project.js';
 import { TRANS_BY_ID, FX_BY_ID } from './effects.js';
 import { ELEMENTS } from './overlays.js';
 import { SFX_LIST } from './audio.js';
@@ -97,14 +97,15 @@ export class Timeline {
         for (let k = 0; k < n; k++) {
           let idx = 0;
           if (m.kind !== 'image') {
-            const tm = c.in + ((k + 0.5) * tw / pps) * (c.speed || 1);
+            const tm = c.in + srcOffset(c, (k + 0.5) * tw / pps);
             idx = clamp(Math.floor(tm / Math.max(0.01, m.dur) * th.list.length), 0, th.list.length - 1);
           }
           el.append(h('img', { src: th.list[idx], style: { left: (k * tw) + 'px', width: tw + 'px' }, draggable: 'false' }));
         }
       }
       const badges = [];
-      if ((c.speed || 1) !== 1) badges.push(c.speed + 'x');
+      if (c.curve && c.curve.length) badges.push('curva'); else if ((c.speed || 1) !== 1) badges.push(c.speed + 'x');
+      if (c.reversed) badges.push('◀◀');
       if (c.fx && c.fx.length) badges.push('✦' + c.fx.length);
       if (m.kind !== 'image' && !(c.vol > 0)) badges.push('🔇');
       if (badges.length) el.append(h('span', { class: 'cb' }, badges.join(' ')));

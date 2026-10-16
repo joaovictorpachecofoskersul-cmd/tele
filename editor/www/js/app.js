@@ -13,6 +13,7 @@ import { needsProxy, makeProxy } from './proxy.js';
 import * as P from './panels.js';
 import { h, $, toast, confirmBox, promptBox, btn } from './ui.js';
 import { svgIcon } from './icons.js';
+import { parseCube } from './lut.js';
 import { itemBase, clipBase, upsertKf } from './kf.js';
 
 const isApp = !!(window.Android && window.Android.begin);
@@ -93,7 +94,11 @@ async function openProject(p) {
     await preloadBlobs();
     for (const it of p.items) if (it.kind === 'image' && it.p.mid) await loadItemImage(it.p.mid);
     if (p.captions && p.captions.marker && p.captions.marker.mid) await loadItemImage(p.captions.marker.mid);
-    for (const c of p.clips) if (c.seg && c.seg.mid) await loadItemImage(c.seg.mid);
+    for (const c of p.clips) {
+      if (c.seg && c.seg.mid) await loadItemImage(c.seg.mid);
+      if (c.key && c.key.mid) await loadItemImage(c.key.mid);
+      if (c.lut && c.lut.mid) await app.loadLut(c.lut.mid);
+    }
     setTimeout(optimizeInBackground, 500);
     $('#home').hidden = true; $('#editor').hidden = false;
     $('#pname').textContent = p.name;
@@ -263,6 +268,47 @@ async function loadItemImage(mid) {
   try { app.renderer.images.set(mid, await createImageBitmap(await app.getBlob(mid))); } catch (e) { }
 }
 app.loadItemImage = loadItemImage;
+app.loadLut = async mid => {
+  if (app.renderer.luts.has(mid)) return true;
+  try { app.renderer.luts.set(mid, parseCube(await (await app.getBlob(mid)).text())); return true; } catch (e) { toast('LUT inválida: ' + e.message, 4000); return false; }
+};
+app.importLut = async () => {
+  const [f] = await pickFiles('.cube,text/plain,application/octet-stream', false);
+  if (!f) return null;
+  try {
+    const lut = parseCube(await f.text());
+    const mid = uid();
+    await store.putMedia(mid, f); app.blobs.set(mid, f);
+    app.project.media[mid] = { id: mid, kind: 'lut', name: f.name, dur: 0, w: 0, h: 0, hasAudio: false };
+    app.renderer.luts.set(mid, lut);
+    return mid;
+  } catch (e) { toast('Não consegui ler a LUT: ' + e.message, 5000); return null; }
+};
+// inverte o clipe (gera uma cópia de trás para frente)
+app.reverseClip = async clip => {
+  const m = app.project.media[clip.mid];
+  if (!m || m.kind !== 'video') { toast('Só dá para inverter vídeo'); return; }
+  if (clip.reversed && clip.orig) {
+    Object.assign(clip, { mid: clip.orig.mid, in: clip.orig.in, out: clip.orig.out }); delete clip.orig; clip.reversed = false;
+    app.commit(); toast('O clipe voltou ao normal'); return;
+  }
+  const ctl = { stop: false };
+  busy({ title: 'Invertendo o clipe', detail: 'Preparando', progress: 0, cancel: () => { ctl.stop = true; } });
+  try {
+    pauseOptimize && pauseOptimize();
+    const { reverseRange } = await import('./reverse.js');
+    const out = await reverseRange(await app.getBlob(clip.mid), clip.in, clip.out, m, k => busyUpdate({ progress: k, detail: Math.round(k * 100) + '%' }), ctl);
+    const file = new File([out], (m.name || 'video').replace(/\.[^.]+$/, '') + '-invertido.' + (out.type.includes('mp4') ? 'mp4' : 'webm'), { type: out.type });
+    const nm = await addMedia(file);
+    nm.proxy = false; nm.noAsr = true;
+    clip.orig = { mid: clip.mid, in: clip.in, out: clip.out };
+    clip.mid = nm.id; clip.in = 0; clip.out = nm.dur; clip.reversed = true;
+    app.commit();
+    toast('Clipe invertido');
+  } catch (e) {
+    if (e.message !== 'cancelado') toast('Não consegui inverter: ' + e.message, 5000);
+  } finally { busyDone(); }
+};
 
 app.importFiles = async mode => {
   const files = await pickFiles('video/*,image/*', true);
@@ -491,11 +537,46 @@ app.renderNow = async () => {
   rendering = true;
   try {
     await app.renderer.render(app.project, app.time, app.preview, { capVersion: app.capVersion, keepPrev: app.preview.playing });
+    if (app.safeGuides && app.safeGuides !== 'off') drawSafe(app.renderer.ctx, app.renderer.out.width, app.renderer.out.height, app.safeGuides);
     drawSelection();
   } catch (e) { console.error(e); }
   rendering = false;
   if (again) { again = false; if (!app.preview.playing) app.requestRender(); }
 };
+
+// guias da zona segura (só na prévia): onde os botões e textos de cada app cobrem o vídeo
+let safeMode = null;
+try { safeMode = localStorage.getItem('ed.safe'); } catch (e) { }
+app.safeGuides = safeMode || 'off';
+app.setSafe = m => { app.safeGuides = m; try { localStorage.setItem('ed.safe', m); } catch (e) { } app.requestRender(); };
+function drawSafe(ctx, W, H, mode) {
+  // frações do quadro cobertas pela interface de cada app (vídeo 9:16)
+  const Z = {
+    reels: { top: .1, bottom: .2, right: .14, left: .03 },
+    tiktok: { top: .09, bottom: .22, right: .17, left: .03 },
+    shorts: { top: .08, bottom: .2, right: .15, left: .03 },
+    stories: { top: .12, bottom: .14, right: .03, left: .03 },
+    youtube: { top: .0, bottom: .1, right: .0, left: .0 },
+  }[mode];
+  if (!Z) return;
+  ctx.save();
+  ctx.fillStyle = 'rgba(255,40,40,.22)';
+  ctx.fillRect(0, 0, W, H * Z.top);
+  ctx.fillRect(0, H * (1 - Z.bottom), W, H * Z.bottom);
+  ctx.fillRect(W * (1 - Z.right), H * Z.top, W * Z.right, H * (1 - Z.top - Z.bottom));
+  ctx.fillRect(0, H * Z.top, W * Z.left, H * (1 - Z.top - Z.bottom));
+  ctx.setLineDash([8, 6]); ctx.strokeStyle = 'rgba(255,255,255,.9)'; ctx.lineWidth = 2;
+  ctx.strokeRect(W * Z.left, H * Z.top, W * (1 - Z.left - Z.right), H * (1 - Z.top - Z.bottom));
+  ctx.setLineDash([]);
+  // ícones laterais (curtir, comentar, compartilhar) para ter noção
+  if (Z.right > .1) {
+    ctx.fillStyle = 'rgba(255,255,255,.55)';
+    for (let i = 0; i < 4; i++) { ctx.beginPath(); ctx.arc(W * (1 - Z.right / 2), H * (1 - Z.bottom) - (i + .6) * H * .075, Math.min(W, H) * .035, 0, Math.PI * 2); ctx.fill(); }
+  }
+  ctx.fillStyle = '#fff'; ctx.font = `700 ${Math.round(Math.min(W, H) * .03)}px sans-serif`; ctx.textAlign = 'center';
+  ctx.fillText('ÁREA SEGURA · ' + mode.toUpperCase(), W / 2, H * Z.top + Math.min(W, H) * .05);
+  ctx.restore();
+}
 
 function updateClock() {
   const L = layout(app.project);
@@ -554,7 +635,7 @@ app.trimItem = (it, side, ds) => {
 
 app.trimClip = (c, side, ds) => {
   const m = app.project.media[c.mid];
-  const sp = c.speed || 1;
+  const sp = (c.out - c.in) / clipDur(c);
   const L = layout(app.project);
   const i = app.project.clips.indexOf(c);
   if (side === 'in') {
@@ -640,7 +721,7 @@ app.cutSilences = async clips => {
 app.mediaNeedingTranscript = () => {
   const p = app.project;
   const mids = [...new Set([...p.clips.map(c => c.mid), ...p.items.filter(i => i.kind === 'audio').map(i => i.p.mid)])];
-  return mids.filter(mid => { const m = p.media[mid]; return m && m.kind !== 'image' && (m.hasAudio || m.kind === 'audio') && !(p.transcripts[mid] && p.transcripts[mid].length); });
+  return mids.filter(mid => { const m = p.media[mid]; return m && m.kind !== 'image' && !m.noAsr && (m.hasAudio || m.kind === 'audio') && !(p.transcripts[mid] && p.transcripts[mid].length); });
 };
 
 app.transcribeAll = async () => {
@@ -773,6 +854,8 @@ const LEVELS = {
     tool('pause', 'Cortar pausas', () => app.cutSilences()),
     tool('dice', 'Surpreenda-me', () => P.surprise(app)),
     tool('format', 'Formato', () => P.formatPanel(app)),
+    tool('frame', 'Zona segura', () => P.platformPanel(app)),
+    tool('export', 'YouTube e formatos', () => P.platformPanel(app)),
     tool('plus', 'Adicionar mídia', () => app.importFiles('cursor')),
   ] },
   audio: { name: 'Áudio', tools: () => [
@@ -1055,6 +1138,87 @@ async function saveBlob(blob, name, quiet) {
 
 // ganchos para teste automatizado
 app.saveText = (text, name, mime = 'application/x-subrip') => saveBlob(new Blob([text], { type: mime }), name);
+// várias exportações seguidas (todos os formatos, stories de 15 s...)
+app.exportMany = async jobs => {
+  const ctl = { aborted: false };
+  await preloadBlobs();
+  busy({ title: 'Exportando', detail: 'Preparando', progress: 0, cancel: () => { ctl.aborted = true; busyUpdate({ detail: 'Cancelando...' }); } });
+  const done = [];
+  try {
+    for (let i = 0; i < jobs.length; i++) {
+      const j = jobs[i];
+      const r = await exportVideo(app, { ...j.settings, project: j.project }, (k, msg) => {
+        busyUpdate({ title: `Exportando ${i + 1} de ${jobs.length}: ${j.label}`, progress: (i + k) / jobs.length, detail: msg });
+      }, ctl);
+      const name = j.name + '.' + r.ext;
+      savedName = null;
+      busyDone();
+      const ok = await saveBlob(r.blob, name, true);
+      if (ok) done.push(j.label);
+      busy({ title: 'Exportando', detail: 'Próximo', progress: (i + 1) / jobs.length, cancel: () => { ctl.aborted = true; } });
+    }
+    busyDone();
+    toast(`${done.length} vídeo(s) salvos: ${done.join(', ')}`, 6000);
+  } catch (e) {
+    busyDone();
+    toast(String(e.message) === 'cancelado' ? `Exportação cancelada (${done.length} prontos)` : 'Erro ao exportar: ' + e.message, 7000);
+  }
+  return done;
+};
+app.fileBase = () => (app.project.name || 'video').replace(/[^\w\-À-ú ]+/g, '').trim().replace(/\s+/g, '-').slice(0, 40);
+
+// corte vertical a partir de um trecho do vídeo longo: vira um projeto novo
+app.makeVertical = async (a, b, follow) => {
+  const { trimProject, asFormat } = await import('./platform.js');
+  const np = asFormat(trimProject(app.project, a, b), '9:16');
+  np.name = (app.project.name || 'Projeto') + ' (vertical)';
+  np.created = np.updated = Date.now();
+  await saveNow();
+  await store.putProject(np);
+  await openProject(np);
+  if (follow) for (const c of app.project.clips) { const m = app.project.media[c.mid]; if (m && m.kind === 'video') await app.trackFaces(c); }
+  toast('Projeto vertical criado. O original continua salvo na lista de projetos.', 5000);
+};
+
+// tradução da legenda
+app.translateCaptions = async lang => {
+  const { sentences } = await import('./captions.js');
+  const { translateTexts } = await import('./translate.js');
+  const subs = sentences(app.project);
+  if (!subs.length) { toast('Gere a legenda primeiro'); return false; }
+  busy({ title: 'Traduzindo a legenda', detail: 'Baixando o tradutor (só na primeira vez)', progress: 0 });
+  try {
+    const out = await translateTexts(subs.map(x => x.t), lang,
+      (k, step) => busyUpdate({ progress: k, detail: 'Traduzindo para ' + step + ' ' + Math.round(k * 100) + '%' }),
+      (l, t) => busyUpdate({ progress: t ? l / t : 0, detail: `Baixando o tradutor: ${Math.round(l / 1e6)} de ${Math.round(t / 1e6)} MB` }));
+    app.project.capTrans = { lang, pages: subs.map((x, i) => ({ start: x.a, end: Math.max(x.b, x.a + 0.4), text: out[i] || '' })) };
+    app.project.captions.lang = lang;
+    app.capVersion++;
+    app.commit(true);
+    toast('Legenda traduzida. Você pode corrigir cada frase.');
+    return true;
+  } catch (e) { toast('Não consegui traduzir: ' + e.message, 6000); return false; } finally { busyDone(); }
+};
+
+// ouvir 6 s do clipe no cursor com a redução de ruído
+app.previewDenoise = async amount => {
+  const p = app.project, L = layout(p), ci = clipIndexAt(p, app.time, L), c = p.clips[ci];
+  const m = c && p.media[c.mid];
+  if (!m || !m.hasAudio) { toast('Coloque o cursor num clipe com som'); return; }
+  const { decodeRange } = await import('./media.js');
+  const { denoiseChannel } = await import('./denoise.js');
+  const s = c.in + Math.max(0, app.time - L.starts[ci]);
+  busy({ title: 'Preparando a prévia do som' });
+  try {
+    const [l, r] = await decodeRange(await app.getBlob(c.mid), s, Math.min(m.dur, s + 6));
+    denoiseChannel(l, amount, 48000); denoiseChannel(r, amount, 48000);
+    const ac = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 48000 });
+    const b = ac.createBuffer(2, l.length, 48000); b.copyToChannel(l, 0); b.copyToChannel(r, 1);
+    const src = ac.createBufferSource(); src.buffer = b; src.connect(ac.destination); src.start();
+    src.onended = () => ac.close();
+  } catch (e) { toast('Não consegui: ' + e.message, 4000); } finally { busyDone(); }
+};
+
 app._test = {
   async newWithFiles(files) { const p = newProject('Teste'); await store.putProject(p); await openProject(p); await addFiles(files, 'append'); },
   ensureEnv, showHome, openProject,

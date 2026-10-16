@@ -1,8 +1,9 @@
 // Mixagem final do áudio do projeto (48 kHz estéreo).
 import { SR, sfx, makeBeat, duckCurve, lufs, limit, ELEMENT_SFX } from './audio.js';
-import { layout, clipDur, transDur } from './project.js';
+import { layout, clipDur, transDur, srcOffset } from './project.js';
 import { TRANS_BY_ID, FX_BY_ID, remapTime } from './effects.js';
 import { decodeRange } from './media.js';
+import { denoiseChannel } from './denoise.js';
 
 // Lista de sons (manuais + automáticos) com o instante em que tocam
 export function sfxEvents(p) {
@@ -84,7 +85,7 @@ export async function mixProject(p, getBlob, onProgress = () => { }) {
     if (!r) continue;
     const c = p.clips[ci];
     const local = tr - Lay.starts[ci];
-    const s = c.in + local * (c.speed || 1);
+    const s = c.in + srcOffset(c, local);
     const x = (s - r.a) * SR, j = Math.floor(x), f = x - j;
     const dl = r.data[0], dr = r.data[1];
     if (j < 0 || j + 1 >= dl.length) continue;
@@ -111,6 +112,12 @@ export async function mixProject(p, getBlob, onProgress = () => { }) {
         L[o + i] += vl; R[o + i] += vr; voice[o + i] += (vl + vr) * 0.5;
       }
     } catch (e) { /* áudio com problema: segue sem */ }
+  }
+  // limpeza de ruído da voz (só a parte de voz e narração; música e efeitos entram depois)
+  if (p.audio.denoise > 0) {
+    onProgress(0.57, 'Limpando o ruído da voz');
+    denoiseChannel(L, p.audio.denoise, SR); denoiseChannel(R, p.audio.denoise, SR);
+    for (let n = 0; n < N; n++) voice[n] = (L[n] + R[n]) * 0.5;
   }
   onProgress(0.6, 'Música e batida');
 

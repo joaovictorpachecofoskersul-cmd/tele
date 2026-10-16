@@ -1,5 +1,5 @@
 // Legenda karaokê: monta as "páginas" (até N palavras) e desenha com a palavra ativa destacada.
-import { layout } from './project.js';
+import { layout, localOf } from './project.js';
 import { cssFont } from './fonts.js';
 import { drawMarker, defaultMarker } from './markers.js';
 
@@ -24,8 +24,8 @@ export function captionWords(p) {
       const w = words[k];
       const mid = (w.s + w.e) / 2;
       if (mid < c.in || mid > c.out) continue;
-      const s = L.starts[i] + (Math.max(w.s, c.in) - c.in) / sp;
-      const e = L.starts[i] + (Math.min(w.e, c.out) - c.in) / sp;
+      const s = L.starts[i] + localOf(c, Math.max(w.s, c.in) - c.in);
+      const e = L.starts[i] + localOf(c, Math.min(w.e, c.out) - c.in);
       out.push({ w: w.w, start: s, end: Math.max(e, s + 0.06), strong: !!w.strong, mid: c.mid, k });
     }
   });
@@ -49,7 +49,42 @@ export function captionWords(p) {
 const PUNCT_END = /[.!?…:;]$/;
 const COMMA = /,$/;
 
+// legenda traduzida: cada trecho vira palavras distribuídas no tempo do trecho original
+function translatedPages(p) {
+  const tr = p.capTrans;
+  return tr.pages.filter(pg => pg.text && pg.text.trim()).map(pg => {
+    const ws = pg.text.trim().split(/\s+/);
+    const d = (pg.end - pg.start) / ws.length;
+    return ws.map((w, i) => ({ w, start: pg.start + i * d, end: pg.start + (i + 1) * d - 0.02, strong: false, mid: null, k: -1 }));
+  }).flatMap(words => {
+    const mw = p.captions.style === 'one' ? 1 : (p.captions.maxWords || 3), out = [];
+    for (let i = 0; i < words.length; i += mw) { const ch = words.slice(i, i + mw); out.push({ words: ch, start: ch[0].start, end: ch[ch.length - 1].end, translated: true }); }
+    return out;
+  });
+}
+
+// frases (até ~7 palavras) com tempo: usadas no .srt e na tradução
+export function sentences(p) {
+  const words = captionWords(p);
+  const subs = [];
+  let cur = [];
+  const flush = () => { if (cur.length) { subs.push({ a: cur[0].start, b: cur[cur.length - 1].end, t: cur.map(w => w.w).join(' ') }); cur = []; } };
+  for (const w of words) {
+    const prev = cur[cur.length - 1];
+    const chars = cur.reduce((a, x) => a + x.w.length + 1, 0);
+    if (prev && (w.start - prev.end > 0.6 || cur.length >= 7 || chars + w.w.length > 42 || /[.!?…]$/.test(prev.w))) flush();
+    cur.push(w);
+  }
+  flush();
+  return subs;
+}
+
 export function buildPages(p) {
+  if (p.captions.lang && p.capTrans && p.capTrans.lang === p.captions.lang && p.capTrans.pages.length) {
+    const pg = translatedPages(p);
+    pg.forEach((x, i) => { const nx = pg[i + 1]; x.hold = nx ? Math.min(nx.start, x.end + 0.6) : x.end + 0.6; });
+    return pg;
+  }
   const words = captionWords(p);
   const cap = p.captions;
   const maxW = cap.style === 'one' ? 1 : (cap.maxWords || 3);
@@ -203,17 +238,15 @@ export function roundRect(ctx, x, y, w, h, r) {
 
 // legenda em .srt (para YouTube e outros): frases de até ~7 palavras / 42 letras
 export function toSRT(p) {
-  const words = captionWords(p);
   const subs = [];
-  let cur = [];
-  const flush = () => { if (cur.length) { subs.push({ a: cur[0].start, b: cur[cur.length - 1].end, t: cur.map(w => w.w).join(' ') }); cur = []; } };
-  for (const w of words) {
-    const prev = cur[cur.length - 1];
-    const chars = cur.reduce((a, x) => a + x.w.length + 1, 0);
-    if (prev && (w.start - prev.end > 0.6 || cur.length >= 7 || chars + w.w.length > 42 || /[.!?…]$/.test(prev.w))) flush();
-    cur.push(w);
+  if (p.captions.lang && p.capTrans && p.capTrans.lang === p.captions.lang) {
+    for (const pg of p.capTrans.pages) if (pg.text && pg.text.trim()) subs.push({ a: pg.start, b: pg.end, t: pg.text.trim() });
+    return srtText(subs);
   }
-  flush();
+  subs.push(...sentences(p));
+  return srtText(subs);
+}
+function srtText(subs) {
   const ts = x => {
     x = Math.max(0, x);
     const hh = Math.floor(x / 3600), mm = Math.floor(x / 60) % 60, ss = Math.floor(x) % 60, ms = Math.round((x - Math.floor(x)) * 1000) % 1000;

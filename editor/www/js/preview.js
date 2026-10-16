@@ -3,7 +3,7 @@
 //   carregado e parado no ponto certo antes do corte, então a emenda não engasga.
 // - Durante a reprodução, o relógio segue o próprio vídeo (não fica brigando com ele com buscas).
 // - Quadros de vídeos grandes (4K) são reduzidos antes de ir para a GPU.
-import { frameRequest, layout, clipIndexAt, clipDur } from './project.js';
+import { frameRequest, layout, clipIndexAt, clipDur, srcOffset, localOf, rateAt } from './project.js';
 import { FX_BY_ID } from './effects.js';
 import { sfx, makeBeat, SR } from './audio.js';
 import { sfxEvents } from './mix.js';
@@ -118,7 +118,7 @@ export class Preview {
     const v = e.v;
     if (this.playing && !this.remap) {
       this.activeKeys.add(this.key(ci));
-      const rate = c.speed || 1;
+      const rate = Math.max(0.0625, Math.min(16, rateAt(c, localOf(c, src - c.in))));
       if (v.playbackRate !== rate) v.playbackRate = rate;
       if (v.paused) {
         if (Math.abs(v.currentTime - src) > 0.06 && !v.seeking) this._seek(v, src);
@@ -231,7 +231,7 @@ export class Preview {
         const e = this.pool.get(this.key(ci));
         const m = this.p.media[c.mid];
         if (e && m && m.kind !== 'image' && !e.v.paused && !e.v.seeking && e.v.readyState >= 3) {
-          const tv = L.starts[ci] + (e.v.currentTime - c.in) / (c.speed || 1);
+          const tv = L.starts[ci] + localOf(c, e.v.currentTime - c.in);
           const end = L.starts[ci] + clipDur(c);
           if (tv >= L.starts[ci] - 0.05 && tv < end && Math.abs(tv - t) < 0.5) { t = tv; this.t0 = tv; this.p0 = now; }
         }
@@ -374,7 +374,7 @@ export class Preview {
     let talking = this.p.items.some(it => it.kind === 'audio' && t >= it.start && t < it.start + it.dur);
     if (c && !talking) {
       const env = this.app.envOf(c.mid);
-      if (env) { const s = c.in + (t - L.starts[ci]) * (c.speed || 1); const k = Math.round(s / 0.02); talking = (env[k] ?? -100) > -38; }
+      if (env) { const s = c.in + srcOffset(c, t - L.starts[ci]); const k = Math.round(s / 0.02); talking = (env[k] ?? -100) > -38; }
     }
     const k = talking ? 0.22 : 1;
     const ac = this._ctx();

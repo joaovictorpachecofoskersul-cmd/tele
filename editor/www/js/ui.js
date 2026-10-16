@@ -1,4 +1,10 @@
 // Pequenos componentes de interface.
+// append ignora itens vazios (null/false), para os painéis poderem montar partes opcionais
+if (!Element.prototype.__appendSafe) {
+  const ap = Element.prototype.append;
+  Element.prototype.append = function (...k) { return ap.apply(this, k.filter(x => x != null && x !== false)); };
+  Element.prototype.__appendSafe = true;
+}
 export function h(tag, attrs = {}, ...kids) {
   const el = document.createElement(tag);
   for (const [k, v] of Object.entries(attrs || {})) {

@@ -4,12 +4,14 @@ import { TRANSITIONS, EFFECTS, TRANS_BY_ID, FX_BY_ID } from './effects.js';
 import { ELEMENTS, TEXT_ANIMS, drawItems } from './overlays.js';
 import { CAPTION_STYLES, toSRT } from './captions.js';
 import { ASR_MODELS } from './asr.js';
+import { LANGS as TR_LANGS } from './translate.js';
 import { FONT_CHOICES } from './fonts.js';
 import { SFX_LIST, BEAT_STYLES, ELEMENT_SFX } from './audio.js';
 import { QUALITIES, PLATFORMS, platformSettings } from './export.js';
 import { BG_CHOICES } from './cartelas.js';
 import { EASES, ITEM_PRESETS, CLIP_PRESETS, interp, upsertKf, kfAt, itemBase, clipBase } from './kf.js';
 import { MARKERS, MARKER_POS, defaultMarker } from './markers.js';
+import { SPEED_CURVES } from './project.js';
 import { FORMATS, layout, clipDur, transDur, fmtTime } from './project.js';
 
 const pct = v => Math.round(v * 100) + '%';
@@ -21,7 +23,7 @@ export function clipPanel(app, clip, tab = 'speed') {
   const body = h('div');
   const tabs = chips([
     { id: 'speed', name: 'Velocidade' }, { id: 'vol', name: 'Volume' }, { id: 'frame', name: 'Enquadrar' },
-    { id: 'anim', name: 'Animação' }, { id: 'person', name: 'Pessoa e rosto' },
+    { id: 'cor', name: 'Ajustar cor' }, { id: 'anim', name: 'Animação' }, { id: 'person', name: 'Pessoa e fundo' },
     { id: 'fx', name: 'Efeitos do clipe' }, { id: 'more', name: 'Mais' },
   ], tab, id => fill(id), 'tabs');
   const ci = () => app.project.clips.indexOf(clip);
@@ -36,6 +38,12 @@ export function clipPanel(app, clip, tab = 'speed') {
         chips([0.25, 0.5, 0.75, 1, 1.25, 1.5, 2, 3].map(v => ({ id: v, name: String(v).replace('.', ',') + 'x' })), clip.speed || 1, v => { clip.speed = v; app.commit(); }),
         slider('Velocidade', 0.1, 4, 0.05, clip.speed || 1, v => { clip.speed = v; app.live(true); }, v => v.toFixed(2).replace('.', ',') + 'x', () => app.commit()),
         h('p', { class: 'hint' }, 'A duração do clipe muda junto. Na prévia o som acompanha a velocidade.'),
+        section('Curva de velocidade (acelera e desacelera)', chips([{ id: '', name: 'Constante' }, ...SPEED_CURVES], (SPEED_CURVES.find(c => clip.curve && c.curve.join() === clip.curve.join()) || { id: clip.curve ? 'custom' : '' }).id, v => {
+          const cv = SPEED_CURVES.find(c => c.id === v); if (cv) clip.curve = [...cv.curve]; else delete clip.curve; app.commit(true); fill('speed');
+        })),
+        clip.curve ? h('div', {}, ...clip.curve.map((v, i) => slider(`Ponto ${i + 1}`, 0.1, 5, 0.05, v, x => { clip.curve[i] = x; app.live(true); }, x => x.toFixed(2).replace('.', ',') + 'x', () => app.commit(true)))) : null,
+        m.kind === 'video' ? section('De trás para frente', btn(clip.reversed ? '↺ Voltar ao normal' : '◀◀ Inverter o clipe', async () => { await app.reverseClip(clip); fill('speed'); }),
+          h('p', { class: 'hint' }, clip.reversed ? 'Este clipe está invertido.' : 'O app cria uma cópia invertida do trecho (imagem e som). Pode levar um tempinho em clipes longos.')) : null,
       );
       if (m.kind === 'image') area.append(slider('Duração da foto', 0.5, 15, 0.1, clip.out - clip.in, v => { clip.out = clip.in + v; app.live(true); }, sec, () => app.commit()));
     }
@@ -55,6 +63,24 @@ export function clipPanel(app, clip, tab = 'speed') {
         toggle('Zoom lento automático', clip.kb, v => { clip.kb = v; app.commit(); }),
         h('p', { class: 'hint' }, 'Dica: com esta aba aberta, arraste o vídeo na prévia para reposicionar e use dois dedos para dar zoom.'),
         btn('Aplicar este enquadramento em todos os clipes', () => { for (const c of app.project.clips) { c.fit = clip.fit; c.zoom = clip.zoom; c.x = clip.x; c.y = clip.y; } app.commit(); toast('Aplicado em todos'); }),
+      );
+    }
+    if (t === 'cor') {
+      const a = clip.adj = clip.adj || {};
+      const S = (name, k, min, max) => slider(name, min, max, 0.01, a[k] || 0, v => { a[k] = v; app.live(); }, v => Math.round(v * 100), () => app.commit());
+      area.append(
+        S('Brilho', 'bri', -0.6, 0.6), S('Contraste', 'con', -0.6, 0.8), S('Saturação', 'sat', -1, 1), S('Temperatura (frio ↔ quente)', 'temp', -1, 1),
+        S('Tom (verde ↔ rosa)', 'tint', -1, 1), S('Clarear sombras', 'shadow', -1, 1), S('Nitidez', 'sharp', 0, 1), S('Vinheta', 'vig', 0, 1),
+        h('div', { class: 'brow' },
+          btn('Zerar', () => { clip.adj = {}; app.commit(); fill('cor'); }, 'sm'),
+          btn('Aplicar em todos os clipes', () => { for (const c of app.project.clips) { c.adj = { ...clip.adj }; if (clip.lut) c.lut = { ...clip.lut }; else delete c.lut; } app.commit(); toast('Cor aplicada em todos os clipes'); }, 'sm')),
+        section('LUT (.cube)',
+          h('p', { class: 'hint' }, 'LUT é um "look" de cor pronto, o mesmo arquivo .cube usado no Premiere, DaVinci e CapCut.'),
+          h('div', { class: 'brow' },
+            btn(clip.lut ? 'Trocar LUT' : 'Carregar LUT .cube', async () => { const mid = await app.importLut(); if (mid) { clip.lut = { mid, k: 1 }; app.commit(); fill('cor'); } }),
+            clip.lut ? btn('Tirar LUT', () => { delete clip.lut; app.commit(); fill('cor'); }, 'sm danger') : null),
+          clip.lut ? h('p', {}, (app.project.media[clip.lut.mid] || {}).name || 'LUT') : null,
+          clip.lut ? slider('Intensidade da LUT', 0, 1, 0.01, clip.lut.k ?? 1, v => { clip.lut.k = v; app.live(); }, pct, () => app.commit()) : null),
       );
     }
     if (t === 'anim') {
@@ -82,6 +108,7 @@ export function clipPanel(app, clip, tab = 'speed') {
           sg.mode !== 'off' ? slider('Quanto da pessoa entra', 0.2, 0.8, 0.01, 1 - (sg.thr ?? .5), v => { sg.thr = 1 - v; app.live(); }, pct, () => app.commit()) : null,
           sg.mode !== 'off' ? slider('Suavidade da borda', 0.02, 0.4, 0.01, sg.soft ?? .15, v => { sg.soft = v; app.live(); }, pct, () => app.commit()) : null,
           h('p', { class: 'hint' }, isVid ? 'Funciona melhor com uma pessoa de frente. Na primeira vez o recorte demora uns segundos para carregar.' : 'Funciona com fotos de pessoas.')),
+        chromaSection(app, clip, () => fill('person')),
       );
     }
     if (t === 'fx') {
@@ -346,11 +373,12 @@ const LBL = {
   speed: 'Velocidade da animação', donut: 'Rosca (furo no meio)', bg: 'Fundo',
 };
 const MULTI = new Set(['items', 'data', 'left', 'right', 'text']);
+const LBL_RACE = { data: 'Tabela (1ª linha: Ano, nomes; depois um ano por linha)', top: 'Quantas barras aparecem', colors: 'Cores (opcional: #EB1E28, #FFDE00...)', suffix: 'Depois do número' };
 const CHOICE = {
   dir: [{ id: 'baixo', name: 'Seta embaixo' }, { id: 'cima', name: 'Seta em cima' }],
   mode: [{ id: 'pulsar', name: 'Pulsar' }, { id: 'piscar', name: 'Piscar' }],
 };
-const RANGE = { speed: [0.3, 3, 0.05, pct], alpha: [0, 1, 0.01, pct], size: [0.02, 0.15, 0.002, v => Math.round(v * 1000)], inset: [0, 0.1, 0.002, pct], hz: [0.5, 8, 0.5, v => v], t2: [0.5, 15, 0.1, sec], dur2: [0.5, 10, 0.1, sec] };
+const RANGE = { top: [2, 12, 1, v => v], speed: [0.3, 3, 0.05, pct], alpha: [0, 1, 0.01, pct], size: [0.02, 0.15, 0.002, v => Math.round(v * 1000)], inset: [0, 0.1, 0.002, pct], hz: [0.5, 8, 0.5, v => v], t2: [0.5, 15, 0.1, sec], dur2: [0.5, 10, 0.1, sec] };
 const isColor = v => typeof v === 'string' && /^(#|rgba?\()/.test(v);
 
 function genericFields(app, it, body, live, commit) {
@@ -360,7 +388,7 @@ function genericFields(app, it, body, live, commit) {
   const last = k => k === 'fonte' ? 3 : k === 'speed' ? 2 : k === 'bg' ? 1 : 0;
   keys.sort((a, b) => last(a) - last(b));
   for (const k of keys) {
-    const v = q[k] ?? def[k], name = LBL[k] || k;
+    const v = q[k] ?? def[k], name = (it.kind === 'g_race' && LBL_RACE[k]) || LBL[k] || k;
     if (k === 'bg' && (it.kind.startsWith('c_') || it.kind.startsWith('g_'))) {
       body.append(section(name, chips(it.kind.startsWith('g_') ? [{ id: 'none', name: 'Sem fundo' }, ...BG_CHOICES] : BG_CHOICES, v, x => { q.bg = x; commit(); })));
     } else if (CHOICE[k]) body.append(section(name, chips(CHOICE[k], v, x => { q[k] = x; commit(); })));
@@ -374,6 +402,27 @@ function genericFields(app, it, body, live, commit) {
   if (it.kind.startsWith('c_')) body.append(h('p', { class: 'hint' }, 'A cartela cobre a tela inteira. Use "Sobre o vídeo" no fundo para ver o vídeo por trás.'));
 }
 
+
+// fundo verde / azul (chroma key) do clipe
+function chromaSection(app, clip, redraw) {
+  const k = clip.key = clip.key || { on: false, color: '#00FF00', sim: .4, soft: .1, spill: .6, mode: 'color', bgColor: '#000000' };
+  return section('Fundo verde (chroma key)',
+    toggle('Tirar a cor do fundo', k.on, v => { k.on = v; app.commit(); redraw(); }),
+    k.on ? h('div', {},
+      h('div', { class: 'sec-t' }, 'Cor a tirar'),
+      swatches(k.color, v => { k.color = v; app.commit(); }, { colors: ['#00FF00', '#00B140', '#0047BB', '#2E6BFF', '#FFFFFF', '#000000'] }),
+      slider('Quanto tira', 0.05, 1, 0.01, k.sim, v => { k.sim = v; app.live(); }, pct, () => app.commit()),
+      slider('Suavidade', 0, 0.6, 0.01, k.soft, v => { k.soft = v; app.live(); }, pct, () => app.commit()),
+      slider('Tirar reflexo verde', 0, 1, 0.01, k.spill, v => { k.spill = v; app.live(); }, pct, () => app.commit()),
+      h('div', { class: 'sec-t' }, 'Fundo novo'),
+      chips([{ id: 'color', name: 'Cor' }, { id: 'blur', name: 'Desfocado' }, { id: 'image', name: 'Imagem' }], k.mode, async v => {
+        if (v === 'image' && !k.mid) { const mid = await app.importImageForItem(); if (!mid) return; k.mid = mid; }
+        k.mode = v; app.commit(); redraw();
+      }),
+      k.mode === 'color' ? swatches(k.bgColor, v => { k.bgColor = v; app.commit(); }) : null,
+      k.mode === 'image' ? btn('Trocar imagem', async () => { const mid = await app.importImageForItem(); if (mid) { k.mid = mid; app.commit(); } }) : null,
+      h('p', { class: 'hint' }, 'Para pôr a pessoa do fundo verde por cima de outro vídeo, use Sobrepor e ligue "Tirar fundo verde" no vídeo sobreposto.')) : null);
+}
 
 // ------------------------------------------------------------------ keyframes (animação ponto a ponto)
 // o: {obj, start (tempo do início na linha do tempo), dur, base(lt), keys:[{k,name,min,max,step,fmt}], presets}
@@ -527,10 +576,10 @@ export function itemPanel(app, it) {
       body.append(slider('Quantidade', 0.1, 1, 0.05, q.amount ?? .5, v => { q.amount = v; live(); }, pct, commit), section('Cor', swatches(q.color, v => { q.color = v; commit(); })));
       break;
     case 'blurbox':
-      body.append(section('Tipo', chips([{ id: 'blur', name: 'Desfocar' }, { id: 'pixel', name: 'Pixelizar' }], q.mode, v => { q.mode = v; commit(); })),
+      body.append(section('Tipo', chips([{ id: 'remove', name: 'Apagar (preencher com o fundo)' }, { id: 'blur', name: 'Desfocar' }, { id: 'pixel', name: 'Pixelizar' }], q.mode, v => { q.mode = v; commit(); })),
         slider('Largura', 0.05, 1, 0.005, q.w, v => { q.w = v; live(); }, pct, commit),
         slider('Altura', 0.02, 1, 0.005, q.h, v => { q.h = v; live(); }, pct, commit),
-        h('p', { class: 'hint' }, 'Use para esconder uma legenda antiga gravada no vídeo, uma placa ou um rosto. Arraste na prévia para posicionar.'));
+        h('p', { class: 'hint' }, '"Apagar" preenche a área com as cores de volta: ótimo para logo, @ e legenda antiga sobre fundo liso (céu, parede, fundo de estúdio). Em fundo cheio de detalhe, "Desfocar" esconde melhor. Arraste na prévia para posicionar.'));
       break;
     case 'like':
       body.append(field('Número embaixo (opcional)', 'count'), section('Cor', swatches(q.color, v => { q.color = v; commit(); })));
@@ -627,7 +676,8 @@ export function itemPanel(app, it) {
             esq: { x: .25, y: .5, w: .5, h: 1, shape: 'rect' }, dir: { x: .75, y: .5, w: .5, h: 1, shape: 'rect' }, g1: { x: .25, y: .25, w: .5, h: .5, shape: 'rect' }, g2: { x: .75, y: .25, w: .5, h: .5, shape: 'rect' }, g3: { x: .25, y: .75, w: .5, h: .5, shape: 'rect' }, g4: { x: .75, y: .75, w: .5, h: .5, shape: 'rect' } }[v];
           Object.assign(q, L2); if (L2.shape === 'rect') { q.shadow = false; } commit();
         })),
-        section('Forma', chips([{ id: 'round', name: 'Cantos redondos' }, { id: 'rect', name: 'Retângulo' }, { id: 'circle', name: 'Círculo' }], q.shape, v => { q.shape = v; commit(); })),
+        section('Forma (máscara)', chips([{ id: 'round', name: 'Cantos redondos' }, { id: 'rect', name: 'Retângulo' }, { id: 'circle', name: 'Círculo' }, { id: 'heart', name: 'Coração' }, { id: 'star', name: 'Estrela' }, { id: 'hex', name: 'Hexágono' }], q.shape, v => { q.shape = v; commit(); })),
+        slider('Borda suave da máscara', 0, 0.15, 0.005, q.feather || 0, v => { q.feather = v; live(); }, pct, commit),
         slider('Largura', 0.1, 1, 0.005, q.w, v => { q.w = v; live(); }, pct, commit),
         slider('Altura', 0.1, 1, 0.005, q.h, v => { q.h = v; live(); }, pct, commit),
         slider('Zoom dentro', 1, 3, 0.01, q.zoom || 1, v => { q.zoom = v; live(); }, v => v.toFixed(2).replace('.', ',') + 'x', commit),
@@ -637,6 +687,10 @@ export function itemPanel(app, it) {
         q.border ? slider('Espessura da borda', 0.002, 0.03, 0.001, q.bw || .006, v => { q.bw = v; live(); }, v => Math.round(v * 1000), commit) : null,
         toggle('Sombra', q.shadow, v => { q.shadow = v; commit(); }),
         toggle('Recortar a pessoa (tirar o fundo deste vídeo)', q.cut, v => { q.cut = v; if (v) q.fit = 'contain'; commit(); }),
+        toggle('Tirar fundo verde (chroma key)', q.key, v => { q.key = v; commit(); itemPanel(app, it); }),
+        q.key ? swatches(q.keyColor || '#00FF00', v => { q.keyColor = v; commit(); }, { colors: ['#00FF00', '#00B140', '#0047BB', '#FFFFFF', '#000000'] }) : null,
+        q.key ? slider('Quanto tira', 0.05, 1, 0.01, q.keySim ?? .35, v => { q.keySim = v; live(); }, pct, commit) : null,
+        q.key ? slider('Suavidade', 0, 0.6, 0.01, q.keySoft ?? .15, v => { q.keySoft = v; live(); }, pct, commit) : null,
         section('Entrada', chips([{ id: 'pop', name: 'Pular' }, { id: 'fade', name: 'Aparecer' }, { id: 'none', name: 'Nenhuma' }], q.anim, v => { q.anim = v; commit(); app.replayItem(it); })),
         m.kind === 'video' ? slider('Começar o vídeo em', 0, Math.max(0.1, (m.dur || 1) - 0.2), 0.05, q.in || 0, v => { q.in = v; live(); }, sec, commit) : null,
         m.kind === 'video' && m.hasAudio ? slider('Volume do som deste vídeo', 0, 1.5, 0.05, q.vol ?? 0, v => { q.vol = v; }, pct, commit) : null,
@@ -646,6 +700,11 @@ export function itemPanel(app, it) {
     }
     default:
       if (/^[cgr]_/.test(it.kind)) genericFields(app, it, body, live, commit);
+  }
+  if (['pip', 'image', 'text', 'emoji', 'stamp', 'floaters', 'confetti', 'knockout'].includes(it.kind)) {
+    body.append(section('Mesclagem', chips([{ id: 'normal', name: 'Normal' }, { id: 'screen', name: 'Clarear (tela)' }, { id: 'multiply', name: 'Escurecer (multiplicar)' },
+      { id: 'overlay', name: 'Sobrepor' }, { id: 'lighter', name: 'Somar luz' }, { id: 'soft-light', name: 'Luz suave' }, { id: 'difference', name: 'Diferença' }, { id: 'color-dodge', name: 'Brilho forte' }],
+      q.blend || 'normal', v => { q.blend = v; commit(); })));
   }
   if (!['sfx', 'audio', 'effect'].includes(it.kind)) {
     const kfBody = h('div');
@@ -727,6 +786,10 @@ export function audioPanel(app) {
           slider('Velocidade (BPM)', 90, 160, 1, a.beat.bpm, v => { a.beat.bpm = v; }, v => v, () => app.commit()),
           slider('Volume da batida', 0, 1, 0.05, a.beat.vol, v => { a.beat.vol = v; }, pct, () => app.commit())) : null,
       ),
+      section('Limpar ruído da voz',
+        slider('Redução de ruído', 0, 1, 0.05, a.denoise || 0, v => { a.denoise = v; }, v => v ? pct(v) : 'desligada', () => app.commit()),
+        h('div', { class: 'brow' }, btn('▶ Ouvir 6 s com limpeza', () => app.previewDenoise(a.denoise || 0.7), 'sm')),
+        h('p', { class: 'hint' }, 'Tira chiado, ventilador, ar-condicionado e vento leve. Vale na exportação; para ouvir antes, ponha o cursor num trecho com fala e toque em Ouvir.')),
       section('Acabamento',
         toggle('Sons automáticos nas transições e elementos', a.sfxAuto, v => { a.sfxAuto = v; app.commit(); }),
         toggle('Volume padrão de rede social (-14 LUFS)', a.loud, v => { a.loud = v; app.commit(); }),
@@ -766,6 +829,16 @@ export function captionsPanel(app) {
         h('p', { class: 'hint' }, 'Escreva as palavras que devem ficar na cor forte em todo o vídeo, separadas por vírgula (ex.: Lula, 13, fome). Também dá para tocar nas palavras em "Corrigir texto".'),
         textInput(cap.strongList || '', v => { cap.strongList = v; app.live(true); }, { onCommit: () => app.commit(true), placeholder: 'Lula, 13, fome' })),
       markerSection(app, cap, draw),
+      has ? section('Idioma da legenda',
+        chips([{ id: '', name: 'Original' }, ...TR_LANGS.map(l => ({ id: l.id, name: l.name }))], cap.lang || '', async v => {
+          if (!v) { cap.lang = ''; app.capVersion++; app.commit(true); draw(); return; }
+          if (p.capTrans && p.capTrans.lang === v) { cap.lang = v; app.capVersion++; app.commit(true); draw(); return; }
+          await app.translateCaptions(v); draw();
+        }),
+        cap.lang ? h('div', { class: 'brow' },
+          btn('✎ Corrigir a tradução', () => translationEditor(app), 'sm'),
+          btn('Traduzir de novo', async () => { await app.translateCaptions(cap.lang); draw(); }, 'sm')) : null,
+        h('p', { class: 'hint' }, 'A tradução roda no celular. Na primeira vez baixa o tradutor (uns 150 MB). Revise sempre: tradução automática erra nomes e gírias. O .srt sai no idioma escolhido.')) : null,
       has ? btn('✎ Corrigir texto e marcar palavras fortes', () => captionsEditor(app), 'pri') : null,
       has ? btn('Apagar toda a legenda', async () => { if (await confirmBox('Apagar a legenda de todos os vídeos?', 'Apagar')) { p.transcripts = {}; app.commit(true); draw(); } }, 'danger') : null,
     );
@@ -823,9 +896,22 @@ function markerSection(app, cap, redraw) {
   return section('Marcador', box);
 }
 
+// corrigir a tradução frase por frase
+function translationEditor(app) {
+  const p = app.project, tr = p.capTrans;
+  if (!tr) return;
+  const list = h('div', { class: 'capedit' });
+  for (const pg of tr.pages) {
+    list.append(h('div', { class: 'cerow' }, h('div', { class: 'cetop' }, btn(fmtTime(pg.start), () => app.setTime(pg.start + 0.01), 'sm'),
+      textInput(pg.text, v => { pg.text = v; }, { onCommit: () => { app.capVersion++; app.commit(true); } }))));
+  }
+  app.openSheet('Corrigir tradução', h('div', {}, h('p', { class: 'hint' }, 'Cada linha é uma frase. O tempo segue a fala original.'), list), { back: () => captionsPanel(app) });
+}
+
 // edição linha a linha
 export function captionsEditor(app) {
   const p = app.project;
+  if (p.captions.lang && p.capTrans) { translationEditor(app); return; }
   const pages = app.renderer.captionsFor(p, app.capVersion);
   const list = h('div', { class: 'capedit' });
   for (const pg of pages) {
@@ -917,9 +1003,118 @@ export function exportPanel(app) {
           app.saveText(srt, (p.name || 'legenda').replace(/[^\w\-À-ú ]+/g, '').trim().replace(/\s+/g, '-').slice(0, 40) + '.srt');
         }),
         btn('Textos para postar', () => postTextsPanel(app)))),
+    section('Mais destinos', btn('YouTube e formatos: vários formatos, stories 15 s, corte vertical, capítulos, miniatura', () => platformPanel(app))),
   );
   showInfo();
   app.openSheet('Exportar', body);
+}
+
+// ------------------------------------------------------------------ YouTube e formatos
+export function platformPanel(app) {
+  const p = app.project;
+  const L = layout(p);
+  const body = h('div');
+  let A = app.cutA ?? 0, B = app.cutB ?? Math.min(L.total, 60);
+  const draw = async () => {
+    const P = await import('./platform.js');
+    body.innerHTML = '';
+    const fmts = app.exportFmts = app.exportFmts || { '9:16': true, '1:1': false, '4:5': true, '16:9': p.format === '16:9' };
+    let q = 'normal';
+    const settings = () => ({ bitrate: q === 'alta' ? 10e6 : q === 'leve' ? 3.5e6 : 6e6, scale: 1, abitrate: 192e3 });
+    p.chapters = p.chapters || [];
+    const chTitle = h('input', { class: 'ti', placeholder: 'Nome do capítulo' });
+    const chText = h('textarea', { class: 'ti', rows: Math.max(2, p.chapters.length + 2) }); chText.value = P.chaptersText(p);
+    body.append(
+      section('Guias da zona segura (só na prévia)',
+        chips([{ id: 'off', name: 'Desligado' }, { id: 'reels', name: 'Reels' }, { id: 'tiktok', name: 'TikTok' }, { id: 'shorts', name: 'Shorts' }, { id: 'stories', name: 'Stories' }, { id: 'youtube', name: 'YouTube' }], app.safeGuides, v => app.setSafe(v)),
+        h('p', { class: 'hint' }, 'Mostra em vermelho onde os botões, o nome e a descrição do app cobrem o vídeo. Deixe textos e legenda dentro do retângulo.')),
+      section('Exportar em vários formatos de uma vez',
+        h('div', { class: 'brow' }, ...['9:16', '4:5', '1:1', '16:9'].map(f => toggle(f, !!fmts[f], v => { fmts[f] = v; }))),
+        chips([{ id: 'alta', name: 'Alta' }, { id: 'normal', name: 'Normal' }, { id: 'leve', name: 'Leve' }], q, v => { q = v; }),
+        btn('Exportar todos os formatos marcados', () => {
+          const list = Object.keys(fmts).filter(f => fmts[f]);
+          if (!list.length) { toast('Marque pelo menos um formato'); return; }
+          app.closeSheet();
+          app.exportMany(list.map(f => ({ label: f, project: P.asFormat(p, f), name: app.fileBase() + '-' + f.replace(':', 'x'), settings: settings() })));
+        }, 'pri'),
+        h('p', { class: 'hint' }, 'O enquadramento é refeito para cada formato (com fundo desfocado quando o vídeo não cabe). Se o clipe segue o rosto, continua seguindo.')),
+      section('Dividir em stories de 15 s',
+        h('p', { class: 'hint' }, `Seu vídeo tem ${fmtTime(L.total)}: vira ${P.splitPoints(p, 15).length} parte(s), cortando de preferência nas emendas.`),
+        btn('Exportar as partes de 15 s', () => {
+          const parts = P.splitPoints(p, 15);
+          app.closeSheet();
+          app.exportMany(parts.map(([a, b], i) => ({ label: `parte ${i + 1}`, project: P.trimProject(p, a, b), name: app.fileBase() + '-story-' + (i + 1), settings: { bitrate: 6e6, scale: 1, abitrate: 160e3 } })));
+        })),
+      section('Corte vertical de um trecho (para Shorts e Reels)',
+        h('p', { class: 'hint' }, 'Ponha o cursor no começo do trecho e toque em "Início aqui"; depois no fim e "Fim aqui". O app cria um projeto novo em 9:16.'),
+        h('div', { class: 'brow' },
+          btn('Início aqui (' + fmtTime(A) + ')', () => { A = app.cutA = app.time; if (B <= A) B = app.cutB = Math.min(L.total, A + 30); draw(); }, 'sm'),
+          btn('Fim aqui (' + fmtTime(B) + ')', () => { B = app.cutB = app.time; if (B <= A) A = app.cutA = Math.max(0, B - 30); draw(); }, 'sm')),
+        (() => { let follow = true; return h('div', {}, toggle('Seguir o rosto automaticamente', true, v => { follow = v; }),
+          btn(`Criar projeto vertical (${fmtTime(Math.max(0, B - A))})`, () => { if (B - A < 1) { toast('Escolha um trecho de pelo menos 1 s'); return; } app.closeSheet(); app.makeVertical(A, B, follow); }, 'pri')); })()),
+      section('Capítulos do YouTube',
+        h('div', { class: 'nrow' }, chTitle, btn('＋ Capítulo no cursor', () => {
+          const tt = chTitle.value.trim() || 'Capítulo ' + (p.chapters.length + 1);
+          p.chapters.push({ t: app.time, title: tt }); p.chapters.sort((a, b) => a.t - b.t); app.commit(); draw();
+        }, 'sm')),
+        ...p.chapters.map((c, i) => h('div', { class: 'brow' }, btn(fmtTime(c.t), () => app.setTime(c.t + 0.01), 'sm'), h('span', {}, c.title), btn('✕', () => { p.chapters.splice(i, 1); app.commit(); draw(); }, 'sm'))),
+        p.chapters.length ? h('div', {}, h('div', { class: 'sec-t' }, 'Cole na descrição do YouTube'), chText,
+          btn('Copiar capítulos', async () => { try { await navigator.clipboard.writeText(chText.value); toast('Copiado'); } catch (e) { chText.select(); document.execCommand('copy'); toast('Copiado'); } }, 'sm')) : null,
+        h('p', { class: 'hint' }, 'O YouTube exige pelo menos 3 capítulos, o primeiro em 00:00 e cada um com 10 s ou mais.')),
+      section('Miniatura (thumbnail) 1280x720', btn('Criar miniatura', () => thumbPanel(app), 'pri')),
+      section('Legenda em outro idioma', btn('Traduzir a legenda', () => captionsPanel(app))),
+    );
+  };
+  await_draw(draw);
+  app.openSheet('YouTube e formatos', body);
+}
+function await_draw(fn) { fn(); }
+
+// editor de miniatura
+export async function thumbPanel(app) {
+  const p = app.project;
+  const P = await import('./platform.js');
+  const o = p.thumb = p.thumb || { text: (p.name || 'TÍTULO DO VÍDEO').toUpperCase(), color: '#FFFFFF', color2: '#FFDE00', pos: 'esquerda', mark: 'nenhum', markColor: '#EB1E28', mx: .75, my: .45, zoom: 1, dark: .65, tag: '', clean: true };
+  const view = document.createElement('canvas');
+  view.style.width = '100%'; view.style.borderRadius = '10px';
+  let frame = null;
+  const grab = async () => {
+    const [W0, H0] = dims(p);
+    const k = Math.min(1, 1600 / Math.max(W0, H0));
+    const c = document.createElement('canvas');
+    const R = new Renderer(c); R.setSize(Math.round(W0 * k / 2) * 2, Math.round(H0 * k / 2) * 2);
+    for (const [a, b] of app.renderer.images) R.images.set(a, b);
+    for (const [a, b] of app.renderer.luts) R.luts.set(a, b);
+    const pp = o.clean ? { ...p, items: p.items.filter(i => i.kind === 'effect'), captions: { ...p.captions, on: false } } : p;
+    await R.render(pp, app.time, app.preview, { capVersion: Math.random() });
+    frame = R.out;
+  };
+  const redraw = () => P.drawThumb(view, frame, o);
+  await grab(); redraw();
+  const f = (label, key, multi) => h('div', {}, h('div', { class: 'sec-t' }, label), textInput(o[key] || '', v => { o[key] = v; redraw(); }, { multiline: multi, onCommit: () => app.commit() }));
+  app.openSheet('Miniatura', h('div', {},
+    view,
+    h('div', { class: 'brow' },
+      btn('Usar o quadro do cursor', async () => { await grab(); redraw(); }, 'sm'),
+      toggle('Sem legenda e elementos', o.clean, async v => { o.clean = v; await grab(); redraw(); })),
+    f('Texto (uma linha por linha; a 2ª fica na cor de destaque)', 'text', true),
+    section('Lado do texto', chips([{ id: 'esquerda', name: 'Esquerda' }, { id: 'direita', name: 'Direita' }, { id: 'baixo', name: 'Embaixo' }], o.pos, v => { o.pos = v; redraw(); })),
+    section('Cor do texto', swatches(o.color, v => { o.color = v; redraw(); })),
+    section('Cor de destaque', swatches(o.color2, v => { o.color2 = v; redraw(); })),
+    section('Fonte', chips([{ id: 'Anton', name: 'Anton' }, { id: 'Poppins', name: 'Poppins' }, { id: 'Bebas Neue', name: 'Bebas' }], o.font || 'Anton', v => { o.font = v; redraw(); })),
+    slider('Escurecer atrás do texto', 0, 1, 0.01, o.dark, v => { o.dark = v; redraw(); }, pct),
+    slider('Zoom da imagem', 1, 2.5, 0.01, o.zoom, v => { o.zoom = v; redraw(); }, v => v.toFixed(2)),
+    slider('Mover imagem (horizontal)', -0.4, 0.4, 0.005, o.ox || 0, v => { o.ox = v; redraw(); }, v => Math.round(v * 100)),
+    section('Destaque', chips([{ id: 'nenhum', name: 'Nenhum' }, { id: 'circulo', name: 'Círculo' }, { id: 'seta', name: 'Seta' }], o.mark, v => { o.mark = v; redraw(); })),
+    slider('Destaque: horizontal', 0, 1, 0.005, o.mx, v => { o.mx = v; redraw(); }, pct),
+    slider('Destaque: vertical', 0, 1, 0.005, o.my, v => { o.my = v; redraw(); }, pct),
+    f('Etiqueta no canto (opcional, ex.: URGENTE)', 'tag'),
+    btn('Salvar miniatura (JPG)', async () => {
+      const b = await P.thumbJpeg(view);
+      app.commit();
+      await app.saveText(b, app.fileBase() + '-miniatura.jpg', 'image/jpeg');
+    }, 'pri big'),
+  ), { back: () => platformPanel(app) });
 }
 
 // descrição de Instagram, WhatsApp e comentário fixado (modelo editável, sem travessão)
@@ -977,7 +1172,7 @@ export function postTextsPanel(app) {
 import { TEMPLATES, applyTemplate } from './templates.js';
 import { listUserTemplates, captureTemplate, saveUserTemplate, renameUserTemplate, deleteUserTemplate, duplicateUserTemplate, toTemplate } from './usertpl.js';
 import { Renderer } from './render.js';
-import { newProject, newClip, dims as dimsOf } from './project.js';
+import { newProject, newClip, dims as dimsOf, dims } from './project.js';
 
 let tplRenderer = null;
 

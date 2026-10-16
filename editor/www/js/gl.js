@@ -19,6 +19,48 @@ vec4 f(vec2 uv){
 // recorte de pessoa: mistura o fundo (uB) e a pessoa (uA) pela máscara (uM.r). uC.x = limiar, uC.y = suavidade
 const SEGC = `vec4 f(vec2 uv){ vec4 fg = texture(uA, uv); float m = texture(uM, uv).r; float a = smoothstep(uC.x - uC.y, uC.x + uC.y, m); return vec4(mix(texture(uB, uv).rgb, fg.rgb, a), 1.); }`;
 const GRAY = `vec4 f(vec2 uv){ vec3 c = texture(uA, uv).rgb; float g = dot(c, vec3(.299,.587,.114)); return vec4(vec3(g)*uC.x, 1.); }`;
+// ajuste de cor: uC = (brilho, contraste, saturação, temperatura), uD = (tom, vinheta, nitidez, realce/sombra)
+const ADJ = `
+uniform vec4 uD;
+vec4 f(vec2 uv){
+  vec2 px = 1./uRes;
+  vec3 c = texture(uA, uv).rgb;
+  if (uD.z > 0.001) {
+    vec3 bl = (texture(uA, uv+vec2(px.x,0)).rgb + texture(uA, uv-vec2(px.x,0)).rgb + texture(uA, uv+vec2(0,px.y)).rgb + texture(uA, uv-vec2(0,px.y)).rgb) * .25;
+    c += (c - bl) * uD.z * 2.5;
+  }
+  c += uC.x * .5;
+  c = (c - .5) * (1. + uC.y) + .5;
+  float l = luma(c);
+  if (abs(uD.w) > .001) { float k = uD.w; c += k * .35 * (1. - smoothstep(.0, .55, l)) - k * .25 * smoothstep(.6, 1., l); }
+  c = mix(vec3(luma(c)), c, 1. + uC.z);
+  c += vec3(uC.w * .12, uD.x * -.06 + uC.w * .02, -uC.w * .12 + uD.x * .02);
+  c.g += uD.x * .08;
+  if (uD.y > .001) { vec2 d = (uv - .5) * vec2(asp(), 1.); c *= 1. - uD.y * smoothstep(.25, .95, length(d)); }
+  return vec4(clamp(c, 0., 1.), 1.);
+}`;
+// LUT 3D guardado como faixa 2D (largura = N*N, altura = N). uC.x = N, uC.y = intensidade
+const LUT = `
+vec3 lutAt(vec3 c){
+  float N = uC.x; float b = c.b * (N - 1.); float b0 = floor(b), b1 = min(N - 1., b0 + 1.), f = b - b0;
+  vec2 sz = vec2(N * N, N);
+  vec2 p0 = vec2(b0 * N + c.r * (N - 1.) + .5, c.g * (N - 1.) + .5) / sz;
+  vec2 p1 = vec2(b1 * N + c.r * (N - 1.) + .5, c.g * (N - 1.) + .5) / sz;
+  return mix(texture(uM, p0).rgb, texture(uM, p1).rgb, f);
+}
+vec4 f(vec2 uv){ vec3 c = texture(uA, uv).rgb; return vec4(mix(c, lutAt(clamp(c, 0., 1.)), uC.y), 1.); }`;
+// chroma key: tira a cor escolhida e põe o fundo (uB). uC = cor, uD = (semelhança, suavidade, tirar reflexo, -)
+const KEY = `
+uniform vec4 uD;
+vec2 cc(vec3 c){ return vec2(dot(c, vec3(-.169, -.331, .5)), dot(c, vec3(.5, -.419, -.081))); }
+vec4 f(vec2 uv){
+  vec3 c = texture(uA, uv).rgb;
+  float d = distance(cc(c), cc(uC.rgb));
+  float a = smoothstep(uD.x * .5, uD.x * .5 + uD.y * .5 + .001, d);
+  float sp = 1. - smoothstep(uD.x * .5, uD.x * .5 + .25, d);
+  vec3 fg = mix(c, vec3(luma(c)), sp * uD.z);
+  return vec4(mix(texture(uB, uv).rgb, fg, a), 1.);
+}`;
 const COPY = `vec4 f(vec2 uv){ return texture(uA, uv); }`;
 const BLUR = `vec4 f(vec2 uv){ vec4 acc=vec4(0); for(int i=-4;i<=4;i++){ acc += texture(uA, uv + uC.xy*float(i)); } return acc/9.; }`;
 
@@ -233,6 +275,30 @@ export class Engine {
     return s1;
   }
   gray(src, k, target) { return this.pass('gray', GRAY, { A: src }, { C: [k, 0, 0, 0] }, target); }
+  adjust(src, a, target) {
+    return this.pass('adj', ADJ, { A: src }, { C: [a.bri || 0, a.con || 0, a.sat || 0, a.temp || 0], D: [a.tint || 0, a.vig || 0, a.sharp || 0, a.shadow || 0] }, target);
+  }
+  // LUT: data = Uint8Array RGBA (N*N x N)
+  lutTexture(key, lut) {
+    if (this.texs.has(key)) return this.texs.get(key);
+    const gl = this.gl, tex = gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D, tex);
+    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, lut.n * lut.n, lut.n, 0, gl.RGBA, gl.UNSIGNED_BYTE, lut.data);
+    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    const t = { tex, w: lut.n * lut.n, h: lut.n };
+    this.texs.set(key, t);
+    return t;
+  }
+  lut(src, lutTex, n, k, target) { return this.pass('lut', LUT, { A: src, M: lutTex }, { C: [n, k, 0, 0] }, target); }
+  chroma(src, bg, color, sim, soft, spill, target) {
+    const n = parseInt(String(color || '#00FF00').replace('#', '').slice(0, 6), 16);
+    return this.pass('key', KEY, { A: src, B: bg }, { C: [((n >> 16) & 255) / 255, ((n >> 8) & 255) / 255, (n & 255) / 255, 1], D: [sim, soft, spill, 0] }, target);
+  }
   segComposite(fg, mask, bg, thr, soft, target) { return this.pass('segc', SEGC, { A: fg, B: bg, M: mask }, { C: [thr, soft, 0, 0] }, target); }
 
   copy(src, target) { return this.pass('copy', COPY, { A: src }, {}, target); }

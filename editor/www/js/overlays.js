@@ -39,6 +39,7 @@ export const ELEMENTS = [
   { kind: 'module', name: 'Card de módulo', p: { num: 'MÓDULO 2', title: 'O que é e como prevenir', bg: '#173B32', accent: '#F0B429' } },
   { kind: 'floaters', name: 'Fundo animado', p: { color: '#FFFFFF', amount: .5 } },
   { kind: 'blurbox', name: 'Desfocar área', p: { x: .5, y: .82, w: .9, h: .1, mode: 'blur' } },
+  { kind: 'blurbox', name: 'Apagar logo / legenda antiga', p: { x: .82, y: .08, w: .3, h: .07, mode: 'remove' } },
   { kind: 'text', name: 'Crédito de imagem', p: { text: 'Foto: Autor, CC BY 4.0', font: 'Poppins', size: .026, color: '#FFFFFF', stroke: '', bg: 'rgba(0,0,0,.5)', x: .5, y: .95, anim: 'fade', upper: false } },
   { kind: 'like', name: 'Curtida (coração)', p: { x: .82, y: .62, count: '12,4 mil', color: '#FF2D55' } },
   { kind: 'click', name: 'Cursor clicando', p: { x: .5, y: .5, clicks: 2 } },
@@ -115,6 +116,7 @@ export function drawItems(ctx, p, t, W, H, env) {
       if (v.r != null) kr = v.r;
       if (v.o != null) ctx.globalAlpha *= Math.max(0, Math.min(1, v.o));
     }
+    if (it.p.blend && it.p.blend !== 'normal') ctx.globalCompositeOperation = it.p.blend;
     const gs = (/^[gr]_/.test(it.kind) && it.p.scale ? it.p.scale : 1) * ks;
     const ax = (d.p.x ?? .5) * W, ay = (d.p.y ?? .5) * H;
     const tf = gs !== 1 || kr;
@@ -573,6 +575,7 @@ const DRAW = {
   blurbox(ctx, it, t, W, H, env) {
     const q = it.p;
     const w = Math.max(4, q.w * W), h = Math.max(4, q.h * H), x = q.x * W - w / 2, y = q.y * H - h / 2;
+    if (q.mode === 'remove') { inpaint(ctx, x, y, w, h); return { x, y, w, h }; }
     const k = q.mode === 'pixel' ? 0.04 : 0.08;
     const sw = Math.max(2, Math.round(w * k)), sh = Math.max(2, Math.round(h * k));
     const tmp = env.scratch(sw, sh); const c2 = tmp.getContext('2d');
@@ -916,13 +919,80 @@ function confetti(ctx, W, H, local, seed) {
 }
 
 // cartelas, gráficos e retenção
+// Apagar logo / legenda antiga: preenche a área com o que está em volta (difusão a partir da borda)
+const ipA = typeof document !== 'undefined' ? document.createElement('canvas') : null;
+function inpaint(ctx, x, y, w, h) {
+  const scale = Math.min(1, 180 / Math.max(w, h));
+  const sw = Math.max(6, Math.round(w * scale)) + 2, sh = Math.max(6, Math.round(h * scale)) + 2;
+  const mx = w / (sw - 2), my = h / (sh - 2);              // tamanho de 1 pixel pequeno em pixels reais
+  if (ipA.width !== sw || ipA.height !== sh) { ipA.width = sw; ipA.height = sh; }
+  const a = ipA.getContext('2d', { willReadFrequently: true });
+  a.imageSmoothingEnabled = true;
+  a.drawImage(ctx.canvas, x - mx, y - my, w + 2 * mx, h + 2 * my, 0, 0, sw, sh);
+  const img = a.getImageData(0, 0, sw, sh), d = img.data;
+  const R = new Float32Array(sw * sh), G = new Float32Array(sw * sh), B = new Float32Array(sw * sh);
+  for (let i = 0; i < sw * sh; i++) { R[i] = d[i * 4]; G[i] = d[i * 4 + 1]; B[i] = d[i * 4 + 2]; }
+  // começa com a interpolação das quatro bordas
+  for (let j = 1; j < sh - 1; j++) for (let i = 1; i < sw - 1; i++) {
+    const u = i / (sw - 1), v = j / (sh - 1), k = j * sw + i;
+    const l = j * sw, r = j * sw + sw - 1, tp = i, bt = (sh - 1) * sw + i;
+    for (const C of [R, G, B]) C[k] = ((1 - u) * C[l] + u * C[r] + (1 - v) * C[tp] + v * C[bt]) / 2;
+  }
+  // suaviza por dentro (Laplace), mantendo a borda
+  for (let it = 0; it < 40; it++) for (let j = 1; j < sh - 1; j++) for (let i = 1; i < sw - 1; i++) {
+    const k = j * sw + i;
+    R[k] = (R[k - 1] + R[k + 1] + R[k - sw] + R[k + sw]) * .25;
+    G[k] = (G[k - 1] + G[k + 1] + G[k - sw] + G[k + sw]) * .25;
+    B[k] = (B[k - 1] + B[k + 1] + B[k - sw] + B[k + sw]) * .25;
+  }
+  // um pouco de grão para não parecer borrão liso
+  for (let i = 0; i < sw * sh; i++) { const n = (hash(i * 1.37) - .5) * 6; d[i * 4] = R[i] + n; d[i * 4 + 1] = G[i] + n; d[i * 4 + 2] = B[i] + n; d[i * 4 + 3] = 255; }
+  a.putImageData(img, 0, 0);
+  ctx.save();
+  ctx.beginPath(); roundRect(ctx, x, y, w, h, Math.min(w, h) * .12); ctx.clip();
+  ctx.imageSmoothingEnabled = true;
+  ctx.drawImage(ipA, 1, 1, sw - 2, sh - 2, x, y, w, h);
+  ctx.restore();
+}
+
 // vídeo sobreposto: PiP, círculo, tela dividida ou pessoa recortada
 const pipCanvas = typeof document !== 'undefined' ? document.createElement('canvas') : null;
+const pipMask = typeof document !== 'undefined' ? document.createElement('canvas') : null;
 function pipPath(ctx, shape, w, h) {
   ctx.beginPath();
-  if (shape === 'circle') ctx.arc(0, 0, Math.min(w, h) / 2, 0, Math.PI * 2);
+  const r = Math.min(w, h) / 2;
+  if (shape === 'circle') ctx.arc(0, 0, r, 0, Math.PI * 2);
   else if (shape === 'round') roundRect(ctx, -w / 2, -h / 2, w, h, Math.min(w, h) * 0.08);
-  else ctx.rect(-w / 2, -h / 2, w, h);
+  else if (shape === 'heart') {
+    ctx.moveTo(0, r * .9);
+    ctx.bezierCurveTo(-r * 1.7, -r * .15, -r * .75, -r * 1.35, 0, -r * .5);
+    ctx.bezierCurveTo(r * .75, -r * 1.35, r * 1.7, -r * .15, 0, r * .9); ctx.closePath();
+  } else if (shape === 'star') {
+    for (let k = 0; k < 10; k++) { const a = -Math.PI / 2 + k * Math.PI / 5, rr = k % 2 ? r * .5 : r; ctx.lineTo(rr * Math.cos(a), rr * Math.sin(a)); }
+    ctx.closePath();
+  } else if (shape === 'hex') {
+    for (let k = 0; k < 6; k++) { const a = Math.PI / 6 + k * Math.PI / 3; ctx.lineTo(r * Math.cos(a), r * Math.sin(a)); }
+    ctx.closePath();
+  } else ctx.rect(-w / 2, -h / 2, w, h);
+}
+const SQUARE = new Set(['circle', 'heart', 'star', 'hex']);
+const hexRgb = hx => { const n = parseInt(String(hx || '#00FF00').replace('#', '').slice(0, 6), 16); return [(n >> 16) & 255, (n >> 8) & 255, n & 255]; };
+// chroma key no Canvas 2D (para vídeo sobreposto)
+function chromaKey(c, color, sim, soft) {
+  const x = c.getContext('2d', { willReadFrequently: true });
+  const img = x.getImageData(0, 0, c.width, c.height), d = img.data;
+  const [kr, kg, kb] = hexRgb(color);
+  const ku = -.169 * kr - .331 * kg + .5 * kb, kv = .5 * kr - .419 * kg - .081 * kb;
+  const lo = sim * 127, hi = lo + soft * 127 + 1;
+  for (let i = 0; i < d.length; i += 4) {
+    const r = d[i], g = d[i + 1], b = d[i + 2];
+    const u = -.169 * r - .331 * g + .5 * b - ku, v = .5 * r - .419 * g - .081 * b - kv;
+    const dist = Math.sqrt(u * u + v * v);
+    const a = dist <= lo ? 0 : dist >= hi ? 1 : (dist - lo) / (hi - lo);
+    if (a < 1) { const l = .299 * r + .587 * g + .114 * b; d[i] = r + (l - r) * (1 - a) * .7; d[i + 1] = g + (l - g) * (1 - a) * .7; d[i + 2] = b + (l - b) * (1 - a) * .7; }
+    d[i + 3] = d[i + 3] * a;
+  }
+  x.putImageData(img, 0, 0);
 }
 DRAW.pip = (ctx, it, t, W, H, env) => {
   const q = it.p;
@@ -930,7 +1000,7 @@ DRAW.pip = (ctx, it, t, W, H, env) => {
   const fr = pp && pp.fr;
   const { a, b } = inOut(t, it, 0.3, 0.2);
   let bw = q.w * W, bh = q.h * H;
-  if (q.shape === 'circle') bw = bh = Math.min(bw, bh);
+  if (SQUARE.has(q.shape)) bw = bh = Math.min(bw, bh);
   const cx = q.x * W, cy = q.y * H;
   const sc = q.anim === 'pop' ? 0.55 + 0.45 * easeOutBack(a) : 1;
   const al = q.anim === 'none' ? 1 : Math.min(q.anim === 'fade' ? a : clamp01(a * 3), b);
@@ -938,7 +1008,8 @@ DRAW.pip = (ctx, it, t, W, H, env) => {
   ctx.globalAlpha *= al;
   ctx.translate(cx, cy); ctx.scale(sc, sc);
   const cut = q.cut && pp && pp.mask;
-  if (!cut && q.shadow) {
+  const special = cut || q.key || (q.feather > 0) || (q.shape && q.shape !== 'rect' && q.shape !== 'round' && q.shape !== 'circle');
+  if (!cut && !q.key && q.shadow) {
     ctx.save(); ctx.shadowColor = 'rgba(0,0,0,.5)'; ctx.shadowBlur = U * 0.035; ctx.shadowOffsetY = U * 0.01;
     pipPath(ctx, q.shape, bw, bh); ctx.fillStyle = '#000'; ctx.fill(); ctx.restore();
   }
@@ -946,17 +1017,36 @@ DRAW.pip = (ctx, it, t, W, H, env) => {
     const sw = fr.w, sh = fr.h;
     const k = (q.fit === 'contain' ? Math.min(bw / sw, bh / sh) : Math.max(bw / sw, bh / sh)) * (q.zoom || 1);
     const dw = sw * k, dh = sh * k, dx = -dw / 2 + (q.ox || 0) * bw, dy = -dh / 2 + (q.oy || 0) * bh;
-    if (cut) {
-      // pessoa recortada: vídeo x máscara num canvas à parte
-      const c = pipCanvas, cw = Math.max(2, Math.round(dw)), ch = Math.max(2, Math.round(dh));
+    if (special) {
+      // monta num canvas à parte: vídeo, recorte de pessoa, chroma key, máscara de forma com borda suave
+      const res = q.key ? Math.min(1, 640 / Math.max(bw, bh)) : Math.min(1, 1280 / Math.max(bw, bh));
+      const cw = Math.max(2, Math.round(bw * res)), ch = Math.max(2, Math.round(bh * res));
+      const c = pipCanvas;
       if (c.width !== cw || c.height !== ch) { c.width = cw; c.height = ch; }
-      const x = c.getContext('2d');
+      const x = c.getContext('2d', { willReadFrequently: !!q.key });
+      x.setTransform(1, 0, 0, 1, 0, 0);
       x.globalCompositeOperation = 'source-over'; x.clearRect(0, 0, cw, ch);
-      x.drawImage(fr.source, 0, 0, cw, ch);
-      x.globalCompositeOperation = 'destination-in'; x.drawImage(pp.mask, 0, 0, cw, ch);
-      x.globalCompositeOperation = 'source-over';
-      if (q.border && q.bw) { ctx.save(); ctx.shadowColor = q.border; ctx.shadowBlur = U * q.bw * 2.5; ctx.drawImage(c, dx, dy); ctx.restore(); }
-      ctx.drawImage(c, dx, dy);
+      const ox = (dx + bw / 2) * res, oy = (dy + bh / 2) * res;
+      x.drawImage(fr.source, ox, oy, dw * res, dh * res);
+      if (cut) { x.globalCompositeOperation = 'destination-in'; x.drawImage(pp.mask, ox, oy, dw * res, dh * res); x.globalCompositeOperation = 'source-over'; }
+      if (q.key) chromaKey(c, q.keyColor || '#00FF00', q.keySim ?? .35, q.keySoft ?? .15);
+      if (!cut && !q.key || q.feather > 0) {
+        const m = pipMask;
+        if (m.width !== cw || m.height !== ch) { m.width = cw; m.height = ch; }
+        const mx = m.getContext('2d');
+        mx.setTransform(1, 0, 0, 1, 0, 0); mx.clearRect(0, 0, cw, ch);
+        const f = (q.feather || 0) * Math.min(cw, ch);
+        mx.translate(cw / 2, ch / 2);
+        const shrink = f > 0 ? Math.max(0.2, 1 - 2.2 * f / Math.min(cw, ch)) : 1;
+        mx.filter = f > 0 ? `blur(${f.toFixed(1)}px)` : 'none';
+        mx.fillStyle = '#fff';
+        if (cut || q.key) mx.fillRect(-cw / 2 * shrink, -ch / 2 * shrink, cw * shrink, ch * shrink);
+        else { pipPath(mx, q.shape, cw * shrink, ch * shrink); mx.fill(); }
+        mx.filter = 'none';
+        x.globalCompositeOperation = 'destination-in'; x.drawImage(m, 0, 0); x.globalCompositeOperation = 'source-over';
+      }
+      if (cut && q.border && q.bw) { ctx.save(); ctx.shadowColor = q.border; ctx.shadowBlur = U * q.bw * 2.5; ctx.drawImage(c, -bw / 2, -bh / 2, bw, bh); ctx.restore(); }
+      ctx.drawImage(c, -bw / 2, -bh / 2, bw, bh);
     } else {
       ctx.save(); pipPath(ctx, q.shape, bw, bh); ctx.clip();
       ctx.fillStyle = '#000'; ctx.fillRect(-bw / 2, -bh / 2, bw, bh);
@@ -968,7 +1058,7 @@ DRAW.pip = (ctx, it, t, W, H, env) => {
     ctx.fillStyle = '#A1A1AA'; ctx.font = cssFont('Poppins', U * 0.03, 700); ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
     ctx.fillText(q.mid ? 'carregando vídeo' : 'escolha um vídeo', 0, 0);
   }
-  if (!cut && q.border && q.bw) { pipPath(ctx, q.shape, bw, bh); ctx.lineWidth = q.bw * U; ctx.strokeStyle = q.border; ctx.stroke(); }
+  if (!cut && !q.key && !(q.feather > 0) && q.border && q.bw) { pipPath(ctx, q.shape, bw, bh); ctx.lineWidth = q.bw * U; ctx.strokeStyle = q.border; ctx.stroke(); }
   ctx.restore();
   return { x: cx - bw * sc / 2, y: cy - bh * sc / 2, w: bw * sc, h: bh * sc };
 };

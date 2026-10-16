@@ -62,7 +62,61 @@ export function newClip(media, opts = {}) {
   };
 }
 
-export function clipDur(c) { return Math.max(0.05, (c.out - c.in) / (c.speed || 1)); }
+// curva de velocidade: c.curve = velocidades em pontos iguais ao longo do trecho da mídia (ex.: [1, 3, .4, 3, 1])
+export const SPEED_CURVES = [
+  { id: 'montagem', name: 'Montagem', curve: [1, 3, .5, 3, 1] },
+  { id: 'heroi', name: 'Herói', curve: [2.5, 2.5, .35, 2.5, 2.5] },
+  { id: 'bala', name: 'Bala', curve: [3, .3, .3, .3, 3] },
+  { id: 'salto', name: 'Salto', curve: [.6, 3.5, .6, 3.5, .6] },
+  { id: 'flashin', name: 'Entrada rápida', curve: [4, 2, 1, 1, 1] },
+  { id: 'flashout', name: 'Saída rápida', curve: [1, 1, 1, 2, 4] },
+];
+const curveCache = new Map();
+function curveTab(c) {
+  const len = Math.max(0.01, c.out - c.in), pts = c.curve;
+  const key = pts.join(',') + '|' + len.toFixed(4);
+  let tb = curveCache.get(key);
+  if (tb) return tb;
+  const N = 120;
+  const sp = v => {
+    const x = v * (pts.length - 1), i = Math.min(pts.length - 2, Math.floor(x)), f = x - i, e = f * f * (3 - 2 * f);
+    return Math.max(0.05, pts[i] + (pts[i + 1] - pts[i]) * e);
+  };
+  const out = [0];
+  for (let k = 1; k <= N; k++) out.push(out[k - 1] + (len / N) / sp((k - 0.5) / N));
+  tb = { out, N, len, sp };
+  if (curveCache.size > 200) curveCache.clear();
+  curveCache.set(key, tb);
+  return tb;
+}
+const hasCurve = c => Array.isArray(c.curve) && c.curve.length > 1;
+// segundos da mídia (a partir de c.in) para um instante local do clipe
+export function srcOffset(c, local) {
+  if (!hasCurve(c)) return local * (c.speed || 1);
+  const { out, N, len } = curveTab(c);
+  if (local <= 0) return 0;
+  if (local >= out[N]) return len;
+  let lo = 0, hi = N;
+  while (hi - lo > 1) { const m = (lo + hi) >> 1; if (out[m] <= local) lo = m; else hi = m; }
+  return (lo + (local - out[lo]) / (out[lo + 1] - out[lo])) / N * len;
+}
+// inverso: segundos da mídia (a partir de c.in) para o instante local
+export function localOf(c, off) {
+  if (!hasCurve(c)) return off / (c.speed || 1);
+  const { out, N, len } = curveTab(c);
+  const v = clamp(off / len, 0, 1) * N, k = Math.min(N - 1, Math.floor(v));
+  return out[k] + (v - k) * (out[k + 1] - out[k]);
+}
+// velocidade no instante local
+export function rateAt(c, local) {
+  if (!hasCurve(c)) return c.speed || 1;
+  const tb = curveTab(c);
+  return tb.sp(srcOffset(c, local) / tb.len);
+}
+export function clipDur(c) {
+  if (hasCurve(c)) return Math.max(0.05, curveTab(c).out[curveTab(c).N]);
+  return Math.max(0.05, (c.out - c.in) / (c.speed || 1));
+}
 
 // Começo de cada clipe e duração total
 export function layout(p) {
@@ -93,7 +147,7 @@ export function transDur(p, i) {
 export function srcTime(p, ci, t, L = layout(p)) {
   const c = p.clips[ci];
   const m = p.media[c.mid];
-  const raw = c.in + (t - L.starts[ci]) * (c.speed || 1);
+  const raw = c.in + srcOffset(c, t - L.starts[ci]);
   const maxT = m && m.kind !== 'image' ? Math.max(0, m.dur - 1 / (p.fps || 30)) : 1e9;
   return clamp(raw, 0, maxT);
 }
@@ -162,10 +216,17 @@ export function splitClipAt(p, t) {
   const i = clipIndexAt(p, t, L);
   if (i < 0) return false;
   const c = p.clips[i];
-  const s = c.in + (t - L.starts[i]) * (c.speed || 1);
+  const s = c.in + srcOffset(c, t - L.starts[i]);
   if (s - c.in < 0.1 || c.out - s < 0.1) return false;
   const d = JSON.parse(JSON.stringify(c));
   d.id = uid();
+  if (hasCurve(c)) {
+    // cada metade fica com o pedaço da curva de velocidade
+    const tb = curveTab(c), v0 = (s - c.in) / tb.len;
+    const P9 = [0, .125, .25, .375, .5, .625, .75, .875, 1];
+    c.curve = P9.map(f => +tb.sp(f * v0).toFixed(3));
+    d.curve = P9.map(f => +tb.sp(v0 + f * (1 - v0)).toFixed(3));
+  }
   c.out = s; d.in = s;
   // animação por pontos: cada metade fica com os seus pontos (tempo local)
   if (c.kf && c.kf.length) {
