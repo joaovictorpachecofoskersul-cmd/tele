@@ -1,6 +1,7 @@
 // Modelos prontos: aplicam formato, enquadramento, legenda, transições, abertura/final, elementos, filtro e música.
 // Itens criados por um modelo ficam marcados (tpl) para que trocar de modelo não acumule coisas.
 import { layout, uid, dims, FORMATS } from './project.js';
+import { defaultMarker } from './markers.js';
 
 const T = (id, dur = 0.4) => ({ id, dur, text: 'WOW' });
 
@@ -13,6 +14,80 @@ const items = {
 };
 
 export const TEMPLATES = [
+  {
+    id: 'brasileirando', name: 'Brasileirando', desc: 'Gancho de 5 s (manchete, moldura pulsando, "ESPERA O FINAL", pílula SEGUE O PERFIL), rebobinar, legenda karaokê amarela e vermelha, tinta nos cortes e card final DIA 25 É LULA 13.',
+    format: '9:16', colors: ['#FFDE00', '#EB1E28'],
+    captions: { on: true, style: 'karaoke', maxWords: 3, x: .5, y: .7, size: 1.05, color: '#FFFFFF', active: '#FFDE00', strong: '#EB1E28', font: 'Poppins', upper: true, star: false },
+    trans: ['ink', 'zoompunch', 'whipL', 'flash'],
+    audio: { beat: { on: false }, sfxAuto: true, duck: true },
+    build: (L, o) => {
+      const g = Math.min(5, L.total * .4), out = [];
+      const [l1, l2] = splitTitle(o.title || 'OLHA O QUE ELE FALOU / E NINGUÉM PERCEBEU');
+      out.push({ kind: 'effect', start: 0, dur: .5, p: { fx: 'zoompunch', i: .7 } });
+      out.push({ kind: 'r_headline', start: 0, dur: Math.max(g, Math.min(L.total, 8)), p: { tag: o.handle || 'LOCAL · DATA', l1, l2, tagColor: '#EB1E28', color2: '#FFDE00', alpha: .8, x: .5, y: .07 } });
+      if (L.total > 6) {
+        out.push({ kind: 'r_frame', start: 0, dur: g, p: { mode: 'pulsar', color: '#EB1E28', inset: .02 } });
+        out.push({ kind: 'r_blink', start: .3, dur: g - .3, p: { text: 'ESPERA O FINAL', size: .045, hz: 3, color: '#FFFFFF', bg: '#EB1E28', x: .5, y: .24 } });
+        out.push({ kind: 'r_cta', start: 0, dur: g, p: { text: 'SEGUE O PERFIL', sub: 'E ASSISTE ATÉ O FIM', color: '#EB1E28', x: .5, y: .84 } });
+      }
+      if (L.total > 12) out.push({ kind: 'effect', start: g - .6, dur: .6, p: { fx: 'rewind', i: .8, span: Math.max(1, g - .6) } });
+      if (o.outro && L.total > 7) out.push({ kind: 'c_final', start: L.total - 3.2, dur: 3.2, p: { bg: 'escuro', fonte: '', speed: 1, l1: 'DIA 25 É', l2: 'LULA 13', cta1: 'COMENTA O QUE ACHOU', cta2: 'SEGUE O PERFIL', pillColor: '#EB1E28' } });
+      return out;
+    },
+  },
+  {
+    id: 'boralula', name: 'BORA LULA', desc: 'Cabeçalho BORA LULA, legenda palavra por palavra com a estrelinha vermelha pulando, transições agressivas e card final LULA 13 com confete.',
+    format: '9:16', colors: ['#EB1E28', '#FFDE00'],
+    captions: { on: true, style: 'karaoke', maxWords: 2, x: .5, y: .68, size: 1.15, color: '#FFFFFF', active: '#FFDE00', strong: '#EB1E28', font: 'Anton', upper: true, star: false, marker: { ...defaultMarker(), on: true, type: 'star', color: '#EB1E28' } },
+    trans: ['zoompunch', 'glitch', 'whipL', 'shake', 'rgbsplit', 'flash'],
+    audio: { beat: { on: true, bpm: 128, vol: .2, style: 'funk' }, sfxAuto: true, duck: true },
+    build: (L, o) => [
+      { kind: 'pill', start: 0, dur: L.total, p: { text: 'BORA LULA', bg: '#EB1E28', color: '#FFFFFF', x: .5, y: .06, size: .045 } },
+      { kind: 'effect', start: 0, dur: .5, p: { fx: 'zoompunch', i: .8 } },
+      ...(o.title ? [{ kind: 'text', start: 0, dur: 3, p: { text: o.title, font: 'Anton', size: .09, color: '#FFDE00', stroke: '#000000', bg: '', x: .5, y: .22, anim: 'pop', upper: true } }] : []),
+      ...(o.outro && L.total > 6 ? [{ kind: 'card', start: L.total - 3, dur: 3, p: { title: 'LULA 13', sub: '25 DE OUTUBRO · VOTE 13', bg: '#EB1E28', bg2: '#7F0A10', color: '#FFFFFF', confetti: true, comment: 'COMENTA: 13' } }] : []),
+    ],
+  },
+  {
+    id: 'forum', name: 'Fórum com Lula (liderança)', desc: 'Para depoimento de liderança: nome e cargo na faixa, legenda limpa sem nada no rosto, cortes suaves e card final do Fórum.',
+    format: '9:16', colors: ['#B91C1C', '#FDE68A'],
+    captions: { on: true, style: 'karaoke', maxWords: 3, x: .5, y: .78, size: .95, color: '#FFFFFF', active: '#FFDE00', strong: '#EB1E28', font: 'Poppins', upper: true, star: false },
+    trans: ['fade', 'dip', 'leak'],
+    audio: { beat: { on: true, bpm: 92, vol: .18, style: 'calmo' }, sfxAuto: false, duck: true },
+    build: (L, o) => [
+      { kind: 'lower', start: .6, dur: Math.min(5, L.total - .6), p: { name: o.handle || 'NOME DA LIDERANÇA', role: o.title || 'Cargo · Entidade', color: '#EB1E28', x: .05, y: .62 } },
+      ...(o.outro && L.total > 6 ? [{ kind: 'c_final', start: L.total - 3.2, dur: 3.2, p: { bg: 'escuro', fonte: '', speed: 1, l1: 'FÓRUM', l2: 'COM LULA', cta1: 'EU VOTO NO LULA', cta2: 'SEGUE O PERFIL', pillColor: '#EB1E28' } }] : []),
+    ],
+  },
+  {
+    id: 'audioviral', name: 'Áudio viral com cartelas', desc: 'Para áudio sobre fundo escuro ou cenas em preto e branco: gancho "O ÁUDIO QUE ESTÁ VIRANDO VOTOS", "OUVE ATÉ O FIM" piscando, tinta nos cortes e card final. Use "+ cartela" na legenda para as datas.',
+    format: '9:16', colors: ['#111111', '#FFDE00'],
+    captions: { on: true, style: 'karaoke', maxWords: 3, x: .5, y: .72, size: 1.05, color: '#FFFFFF', active: '#FFDE00', strong: '#EB1E28', font: 'Poppins', upper: true, star: false },
+    trans: ['ink', 'dip', 'ink', 'flash'],
+    clipFx: [{ id: 'bw', i: .9 }, { id: 'vignette', i: .6 }],
+    audio: { beat: { on: false }, sfxAuto: true, duck: true },
+    build: (L, o) => {
+      const g = Math.min(5, L.total * .45);
+      const [l1, l2] = splitTitle(o.title || 'O ÁUDIO QUE ESTÁ / VIRANDO VOTOS');
+      return [
+        { kind: 'r_headline', start: 0, dur: g, p: { tag: o.handle || 'OUÇA', l1, l2, tagColor: '#EB1E28', color2: '#FFDE00', alpha: .85, x: .5, y: .1 } },
+        { kind: 'r_blink', start: .4, dur: g - .4, p: { text: 'OUVE ATÉ O FIM', size: .045, hz: 3, color: '#FFFFFF', bg: '#EB1E28', x: .5, y: .3 } },
+        ...(L.total > 6 ? [{ kind: 'r_cta', start: 0, dur: g, p: { text: 'SEGUE O PERFIL', sub: 'E COMPARTILHA', color: '#EB1E28', x: .5, y: .86 } }] : []),
+        ...(o.outro && L.total > 7 ? [{ kind: 'c_final', start: L.total - 3.2, dur: 3.2, p: { bg: 'escuro', fonte: '', speed: 1, l1: 'DIA 25 É', l2: 'LULA 13', cta1: 'MANDA PRA 3 PESSOAS', cta2: 'SEGUE O PERFIL', pillColor: '#EB1E28' } }] : []),
+      ];
+    },
+  },
+  {
+    id: 'carrossel', name: 'Carrossel em vídeo', desc: 'Para fotos e prints em sequência: zoom lento, tinta e mergulho preto nos cortes, som de suspense e fundo desfocado.',
+    format: '9:16', fitAll: 'blur', kbAll: true, colors: ['#1F2937', '#EB1E28'],
+    captions: { on: true, style: 'karaoke', maxWords: 3, x: .5, y: .8, size: 1, color: '#FFFFFF', active: '#FFDE00', strong: '#EB1E28', font: 'Poppins', upper: true, star: false },
+    trans: ['ink', 'dip', 'radialzoom'],
+    audio: { beat: { on: true, bpm: 80, vol: .3, style: 'calmo' }, sfxAuto: true, duck: true },
+    build: (L, o) => [
+      ...(o.title ? [{ kind: 'r_headline', start: 0, dur: Math.min(4, L.total), p: { tag: o.handle || 'VEJA', l1: splitTitle(o.title)[0], l2: splitTitle(o.title)[1], tagColor: '#EB1E28', color2: '#FFDE00', alpha: .8, x: .5, y: .08 } }] : []),
+      { kind: 'sfx', start: 0, dur: 1, p: { type: 'riser', vol: .5 } },
+    ],
+  },
   {
     id: 'tiktok', name: 'TikTok / Reels viral', desc: 'Legenda karaokê grande, cortes com chicote e zoom soco, barra de progresso, batida e final com "siga".',
     format: '9:16', colors: ['#FFE600', '#FF2D55'],
@@ -370,6 +445,14 @@ export const TEMPLATES = [
   },
 ];
 
+// "LINHA 1 / LINHA 2" ou divide no meio
+function splitTitle(t) {
+  t = String(t || '').trim();
+  if (t.includes('/')) { const [a, ...b] = t.split('/'); return [a.trim(), b.join('/').trim()]; }
+  const w = t.split(/\s+/); if (w.length < 4) return [t, ''];
+  const k = Math.ceil(w.length / 2); return [w.slice(0, k).join(' '), w.slice(k).join(' ')];
+}
+
 export const TEMPLATE_BY_ID = Object.fromEntries(TEMPLATES.map(t => [t.id, t]));
 
 // enquadramento automático: mesmo formato = preencher; formato diferente = caber com fundo desfocado
@@ -394,28 +477,35 @@ export function applyTemplate(p, tpl, opt) {
   if (FORMATS[tpl.format]) p.format = tpl.format;
   autoFit(p, tpl.fitAll);
   for (const c of p.clips) { const m = p.media[c.mid]; if (m && m.kind === 'image') c.kb = tpl.kbAll ? true : c.kb; }
-  if (opt.captions !== false) p.captions = { ...p.captions, ...tpl.captions };
+  if (opt.captions !== false) {
+    const keep = p.captions.marker;
+    p.captions = { ...p.captions, ...JSON.parse(JSON.stringify(tpl.captions)) };
+    if (!tpl.captions.marker) p.captions.marker = { ...(keep || defaultMarker()), on: false };
+  }
+  if (tpl.media) for (const [k, v] of Object.entries(tpl.media)) if (!p.media[k]) p.media[k] = { ...v };
   // transições
   const list = opt.trans !== false ? tpl.trans : ['none'];
   p.clips.forEach((c, i) => {
     if (i >= p.clips.length - 1) { c.trans = T('none'); return; }
     const id = list[i % list.length];
-    c.trans = T(id, id === 'fade' || id === 'dip' || id === 'leak' ? 0.6 : 0.4);
+    const d = tpl.transDur && opt.trans !== false ? tpl.transDur[i % tpl.transDur.length] : null;
+    c.trans = T(id, d || (id === 'fade' || id === 'dip' || id === 'leak' ? 0.6 : 0.4));
   });
   // filtro nos clipes
   for (const f of tpl.clipFx || []) for (const c of p.clips) c.fx.push({ ...f, tpl: true });
   // áudio
   if (opt.music !== false && tpl.audio) {
     if (tpl.audio.beat) p.audio.beat = { ...p.audio.beat, ...tpl.audio.beat };
+    if (tpl.music && p.media[tpl.music.mid] && !p.audio.music) p.audio.music = { ...tpl.music };
     if (p.audio.music && p.audio.beat.on) p.audio.beat.on = false;   // se já tem música, não põe batida por cima
   } else if (opt.music === false) p.audio.beat = { ...p.audio.beat, on: false };
-  if (tpl.audio) { p.audio.sfxAuto = tpl.audio.sfxAuto; p.audio.duck = tpl.audio.duck; }
+  if (tpl.audio) { p.audio.sfxAuto = tpl.audio.sfxAuto; p.audio.duck = tpl.audio.duck; if (tpl.audio.loud !== undefined) p.audio.loud = tpl.audio.loud; }
   // elementos
   const L = layout(p);
   const o = { title: (opt.title || '').trim(), handle: (opt.handle || '').trim(), intro: opt.intro !== false, outro: opt.outro !== false };
   for (const it of tpl.build(L, o, p)) {
     if (it.start >= L.total) continue;
-    p.items.push({ id: uid(), kind: it.kind, start: Math.max(0, it.start), dur: Math.max(0.2, Math.min(it.dur, L.total - Math.max(0, it.start))), p: it.p, tpl: true });
+    p.items.push({ id: uid(), kind: it.kind, start: Math.max(0, it.start), dur: Math.max(0.2, Math.min(it.dur, L.total - Math.max(0, it.start))), p: JSON.parse(JSON.stringify(it.p)), tpl: true });
   }
   return p;
 }

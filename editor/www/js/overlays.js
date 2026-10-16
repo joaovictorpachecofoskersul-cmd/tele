@@ -2,6 +2,9 @@
 import { cssFont } from './fonts.js';
 import { roundRect } from './captions.js';
 import BRAZIL from '../vendor/brazil-map.js';
+import { CARTELA_DRAW, CARTELA_ELEMENTS } from './cartelas.js';
+import { GRAFICO_DRAW, GRAFICO_ELEMENTS } from './graficos.js';
+import { RETENCAO_DRAW, RETENCAO_ELEMENTS, drawRewindMarks } from './retencao.js';
 
 export const TEXT_ANIMS = [
   { id: 'pop', name: 'Pular' }, { id: 'fade', name: 'Aparecer' }, { id: 'slide', name: 'Subir' },
@@ -88,13 +91,20 @@ export function drawItems(ctx, p, t, W, H, env) {
   const boxes = [];
   const order = p.items.filter(it => it.kind === 'blurbox').concat(p.items.filter(it => it.kind !== 'blurbox'));
   for (const it of order) {
-    if (it.kind === 'effect' || it.kind === 'sfx' || it.kind === 'audio') continue;
+    if (it.kind === 'effect') {
+      if (it.p.fx === 'rewind' && t >= it.start && t < it.start + it.dur) { ctx.save(); drawRewindMarks(ctx, it, t, W, H); ctx.restore(); }
+      continue;
+    }
+    if (it.kind === 'sfx' || it.kind === 'audio') continue;
     if (t < it.start || t >= it.start + it.dur) continue;
     const fn = DRAW[it.kind];
     if (!fn) continue;
     ctx.save();
+    const gs = /^[gr]_/.test(it.kind) && it.p.scale && it.p.scale !== 1 ? it.p.scale : 0;
+    if (gs) { const ax = (it.p.x ?? .5) * W, ay = (it.p.y ?? .5) * H; ctx.translate(ax, ay); ctx.scale(gs, gs); ctx.translate(-ax, -ay); }
     try {
-      const b = fn(ctx, it, t, W, H, env, p);
+      let b = fn(ctx, it, t, W, H, env, p);
+      if (b && gs) { const ax = (it.p.x ?? .5) * W, ay = (it.p.y ?? .5) * H; b = { ...b, x: ax + (b.x - ax) * gs, y: ay + (b.y - ay) * gs, w: b.w * gs, h: b.h * gs }; }
       if (b) boxes.push({ id: it.id, ...b });
     } catch (e) { /* um elemento com erro não derruba o quadro */ }
     ctx.restore();
@@ -887,3 +897,7 @@ function confetti(ctx, W, H, local, seed) {
     ctx.restore();
   }
 }
+
+// cartelas, gráficos e retenção
+Object.assign(DRAW, CARTELA_DRAW, GRAFICO_DRAW, RETENCAO_DRAW);
+ELEMENTS.push(...RETENCAO_ELEMENTS, ...CARTELA_ELEMENTS, ...GRAFICO_ELEMENTS);

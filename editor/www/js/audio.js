@@ -11,7 +11,10 @@ export const SFX_LIST = [
 ];
 
 // som automático de alguns elementos
-export const ELEMENT_SFX = { stamp: 'carimbo', counter: 'tique', censor: 'erro', card: 'boom', emoji: 'pop', circle: 'whoosh', arrow: 'pop', lower: 'whoosh', follow: 'pop', bubble: 'pop', pill: 'pop', checklist: 'pop', people: 'pop', map: 'whoosh', bars: 'whoosh', module: 'whoosh', like: 'pop', click: 'clique', tap: 'pop', bell: 'notificacao', notif: 'notificacao', swipe: 'whoosh', comment: 'pop', poll: 'pop', share: 'whoosh' };
+export const ELEMENT_SFX = { stamp: 'carimbo', counter: 'tique', censor: 'erro', card: 'boom', emoji: 'pop', circle: 'whoosh', arrow: 'pop', lower: 'whoosh', follow: 'pop', bubble: 'pop', pill: 'pop', checklist: 'pop', people: 'pop', map: 'whoosh', bars: 'whoosh', module: 'whoosh', like: 'pop', click: 'clique', tap: 'pop', bell: 'notificacao', notif: 'notificacao', swipe: 'whoosh', comment: 'pop', poll: 'pop', share: 'whoosh',
+  c_year: 'tique', c_period: 'whoosh', c_date: 'boom', c_timeline: 'whoosh', c_two: 'pop', c_list: 'pop', c_phrase: 'impacto', c_quote: 'whoosh', c_final: 'boom',
+  g_vbars: 'whoosh', g_line: 'whoosh', g_pie: 'whoosh', g_ring: 'whoosh', g_poll: 'whoosh', g_versus: 'whoosh', g_table: 'whoosh', g_countdown: 'tique', g_odometer: 'tique',
+  r_cta: 'pop', r_headline: 'whoosh', r_nametag: 'pop' };
 
 // --------------------------------------------------------------------------
 // utilidades DSP

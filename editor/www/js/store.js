@@ -1,3 +1,4 @@
+import { userTemplateMedia } from './usertpl.js';
 // Armazenamento local (IndexedDB): projetos, arquivos de mídia e dados auxiliares (miniaturas, envelope de áudio).
 const DB = 'editor-videos';
 let dbp = null;
@@ -42,6 +43,7 @@ export const store = {
     // apaga mídias que nenhum outro projeto usa
     const others = await this.listProjects();
     const used = new Set(others.flatMap(o => Object.keys(o.media || {})));
+    for (const m of userTemplateMedia()) used.add(m);
     for (const mid of Object.keys(p.media || {})) {
       if (!used.has(mid)) { await tx('media', 'readwrite', s => s.delete(mid)); await tx('media', 'readwrite', s => s.delete(mid + '_px')); await tx('aux', 'readwrite', s => s.delete(mid)); }
     }

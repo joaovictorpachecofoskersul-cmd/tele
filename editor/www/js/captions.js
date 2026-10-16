@@ -1,6 +1,7 @@
 // Legenda karaokê: monta as "páginas" (até N palavras) e desenha com a palavra ativa destacada.
 import { layout } from './project.js';
 import { cssFont } from './fonts.js';
+import { drawMarker, defaultMarker } from './markers.js';
 
 export const CAPTION_STYLES = [
   { id: 'karaoke', name: 'Karaokê' },
@@ -71,6 +72,8 @@ export function buildPages(p) {
   return pages;
 }
 
+export function norm(w) { return String(w).toLocaleLowerCase('pt-BR').replace(/[^\p{L}\p{N}]/gu, ''); }
+
 function clean(w, upper) {
   const s = upper ? w.toLocaleUpperCase('pt-BR') : w;
   return s;
@@ -89,7 +92,7 @@ function star(ctx, x, y, r, color) {
 }
 
 // Desenha a legenda do instante t. Devolve a caixa ocupada (para arrastar na prévia).
-export function drawCaptions(ctx, p, pages, t, W, H) {
+export function drawCaptions(ctx, p, pages, t, W, H, env = {}) {
   const cap = p.captions;
   if (!cap.on || !pages.length) return null;
   const page = pages.find(pg => t >= pg.start - 0.02 && t < pg.hold);
@@ -101,7 +104,9 @@ export function drawCaptions(ctx, p, pages, t, W, H) {
   ctx.font = cssFont(font, size, 900);
   ctx.textBaseline = 'middle';
   const gap = size * 0.28;
-  const words = page.words.map(w => ({ ...w, txt: clean(w.w, cap.upper) }));
+  // palavras fortes: marcadas uma a uma ou pela lista do projeto
+  const strongSet = new Set(String(cap.strongList || '').split(/[,;\n]/).map(x => norm(x)).filter(Boolean));
+  const words = page.words.map(w => ({ ...w, strong: w.strong || strongSet.has(norm(w.w)), txt: clean(w.w, cap.upper) }));
   // quebra em linhas
   const maxLine = W * 0.86;
   let lines = [[]], lw = [0];
@@ -127,14 +132,33 @@ export function drawCaptions(ctx, p, pages, t, W, H) {
     roundRect(ctx, box.x, box.y, box.w, box.h, size * 0.25); ctx.fill();
   }
 
+  // posições de cada palavra
+  const pos = [];
   lines.forEach((ln, li) => {
     let x = cx - lw[li] / 2;
     const y = top + li * lineH;
-    for (const w of ln) {
+    for (const w of ln) { pos.push({ w, x: x + w.wd / 2, y, wd: w.wd }); x += w.wd + gap; }
+  });
+  // marcador que pula (estrelinha ou outro elemento)
+  const mk = cap.marker && cap.marker.on ? cap.marker : (cap.star ? { ...defaultMarker(), on: true, color: cap.strong } : null);
+  const ai = pos.findIndex(o => t >= o.w.start && t < o.w.end + 0.02);
+  const marker = () => {
+    if (!mk || ai < 0) return;
+    const B = pos[ai], A = ai > 0 ? pos[ai - 1] : null;
+    const pt = o => ({ x: o.x, y: o.y, w: o.wd, h: size });
+    const strongAlt = B.w.strong && mk.strongType;
+    drawMarker(ctx, mk, A ? pt(A) : { x: B.x, y: B.y - size * 1.2, w: B.wd, h: size }, pt(B), t - B.w.start, t, size,
+      { type: strongAlt ? mk.strongType : mk.type, color: strongAlt ? (mk.strongColor || mk.color) : mk.color, image: mk.mid && env.image ? env.image(mk.mid) : null });
+  };
+  if (mk && mk.pos === 'atras') marker();
+
+  for (const o of pos) {
+    const w = o.w, wx = o.x, y = o.y;
+    {
       const active = t >= w.start && t < w.end + 0.02;
       const past = t >= w.end;
       let col = cap.color;
-      if (style === 'karaoke' && active) col = cap.active;
+      if (style === 'karaoke' && active && !(mk && mk.noColor)) col = cap.active;
       if (style === 'fill' && (active || past)) col = cap.active;
       if (style === 'one') col = cap.active;
       if (w.strong) col = cap.strong;
@@ -142,7 +166,6 @@ export function drawCaptions(ctx, p, pages, t, W, H) {
       if (style === 'one') sc = 0.6 + 0.4 * easeOutBack(Math.min(1, (t - w.start) / 0.14));
       else if (active && style !== 'classic') sc = 1 + 0.1 * easeOutBack(Math.min(1, (t - w.start) / 0.1));
       sc *= 0.85 + 0.15 * easeOutBack(pageIn);
-      const wx = x + w.wd / 2;
       ctx.save();
       ctx.translate(wx, y); ctx.scale(sc, sc);
       ctx.textAlign = 'center';
@@ -165,14 +188,9 @@ export function drawCaptions(ctx, p, pages, t, W, H) {
         ctx.fillStyle = col; ctx.fillText(w.txt, 0, 0);
       }
       ctx.restore();
-      if (cap.star && active) {
-        const k = Math.min(1, (t - w.start) / 0.18);
-        const hop = Math.sin(k * Math.PI) * size * 0.35;
-        star(ctx, wx, y - size * 0.85 - hop, size * 0.22, cap.strong);
-      }
-      x += w.wd + gap;
     }
-  });
+  }
+  if (mk && mk.pos !== 'atras') marker();
   ctx.restore();
   return box;
 }
@@ -181,4 +199,29 @@ export function roundRect(ctx, x, y, w, h, r) {
   ctx.beginPath();
   ctx.moveTo(x + r, y); ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r);
   ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath();
+}
+
+// legenda em .srt (para YouTube e outros): frases de até ~7 palavras / 42 letras
+export function toSRT(p) {
+  const words = captionWords(p);
+  const subs = [];
+  let cur = [];
+  const flush = () => { if (cur.length) { subs.push({ a: cur[0].start, b: cur[cur.length - 1].end, t: cur.map(w => w.w).join(' ') }); cur = []; } };
+  for (const w of words) {
+    const prev = cur[cur.length - 1];
+    const chars = cur.reduce((a, x) => a + x.w.length + 1, 0);
+    if (prev && (w.start - prev.end > 0.6 || cur.length >= 7 || chars + w.w.length > 42 || /[.!?…]$/.test(prev.w))) flush();
+    cur.push(w);
+  }
+  flush();
+  const ts = x => {
+    x = Math.max(0, x);
+    const hh = Math.floor(x / 3600), mm = Math.floor(x / 60) % 60, ss = Math.floor(x) % 60, ms = Math.round((x - Math.floor(x)) * 1000) % 1000;
+    const z = (n, k = 2) => String(n).padStart(k, '0');
+    return `${z(hh)}:${z(mm)}:${z(ss)},${z(ms, 3)}`;
+  };
+  return subs.map((s, i) => {
+    const b = Math.max(s.b, s.a + 0.3), next = subs[i + 1];
+    return `${i + 1}\n${ts(s.a)} --> ${ts(next ? Math.min(b + 0.25, next.a) : b + 0.25)}\n${s.t}\n`;
+  }).join('\n');
 }

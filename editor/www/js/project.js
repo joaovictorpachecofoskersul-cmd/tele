@@ -104,7 +104,7 @@ export function remapGlobal(p, t) {
     const fx = FX_BY_ID[it.p.fx];
     if (!fx || !fx.timeRemap) continue;
     if (t >= it.start && t < it.start + it.dur) {
-      return it.start + remapTime(fx.id, t - it.start, it.dur, it.p.i ?? fx.def.i);
+      return Math.max(0, it.start + remapTime(fx.id, t - it.start, it.dur, it.p.i ?? fx.def.i, it.p.span ?? 5));
     }
   }
   return t;

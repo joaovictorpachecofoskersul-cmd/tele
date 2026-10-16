@@ -337,6 +337,14 @@ vec4 f(vec2 uv){ float k=floor(uv.y*3.); float ly=fract(uv.y*3.); vec2 q=vec2(uv
   { id:'split2', name:'Tela dividida', group:'Estilo', def:{i:1}, sfx:null, glsl:`
 vec4 f(vec2 uv){ float ly=fract(uv.y*2.); vec4 c=A(vec2(uv.x,(ly-.5)*.5+.5)); float line=smoothstep(.006,0.,abs(uv.y-.5)); return vec4(mix(c.rgb,vec3(1),line),1.); }` },
 
+  { id:'spotlight', name:'Holofote', group:'Luz', def:{i:1, cx:.5, cy:.45, r:.25}, sfx:null, params: q => [q.cx ?? .5, q.cy ?? .45, q.r ?? .25, 0], glsl:`
+vec4 f(vec2 uv){ vec2 c=vec2(uC.x,1.-uC.y); vec2 d=(uv-c)*vec2(asp(),1.); d.y*=.8; float dist=length(d); float r=uC.z*(1.+.06*sin(uT*6.));
+  float m=clamp(1.-(dist-r)/.09,.28,1.); vec4 col=A(uv); vec3 o=col.rgb*mix(1.,m,uI);
+  float ring=smoothstep(.006,0.,abs(dist-r))*uI; return vec4(mix(o,vec3(.92,.12,.16),ring),1.); }` },
+
+  { id:'darkfade', name:'Escurecer até o preto', group:'Luz', def:{i:1}, sfx:null, glsl:`
+vec4 f(vec2 uv){ vec4 c=A(uv); float k=smoothstep(0.,1.,uP)*uI; return vec4(c.rgb*(1.-k),1.); }` },
+
   { id:'splitElastic', name:'Tela dividida elástica', group:'Estilo', def:{i:1}, sfx:'whoosh', glsl:`
 vec4 f(vec2 uv){ float div=.5+sin(uT*3.)*.08*uI*exp(-uP*1.5)+ (1.-easeOut(clamp(uP*3.,0.,1.)))*.5;
   float w=.006; vec4 c;
@@ -370,6 +378,10 @@ vec4 f(vec2 uv){ vec2 p=toP(uv); float r=length(p); float a=uI*4.*(1.-smoothstep
 vec4 f(vec2 uv){ return A(uv+vec2(sin(uv.y*25.+uT*6.)*.012*uI, 0.)); }` },
 
   { id:'stutter', name:'Repetir (stutter)', group:'Tempo', def:{i:.5}, timeRemap:true, sfx:null, glsl:`vec4 f(vec2 uv){ return A(uv); }` },
+  { id:'rewind', name:'Rebobinar', group:'Tempo', def:{i:1, span:5}, timeRemap:true, sfx:'whoosh', glsl:`
+vec4 f(vec2 uv){ float w=(noise(vec2(uv.y*40.,uT*30.))-.5)*.01; vec4 c=A(vec2(uv.x+w,uv.y)); float sl=mod(floor(uv.y*uRes.y),3.)<1.?.5:1.;
+  float mid=exp(-pow((uv.y-.58)*3.,2.))*.25; vec3 col=c.rgb*sl+mid; col=mix(col,vec3(luma(col)),.35); return vec4(col,1.); }` },
+
   { id:'freeze', name:'Congelar', group:'Tempo', def:{i:1}, timeRemap:true, sfx:'camera', glsl:`
 vec4 f(vec2 uv){ vec4 c=A(uv); float fl=pow(1.-clamp(uP*6.,0.,1.),2.)*.8; return vec4(mix(c.rgb,vec3(1),fl),1.); }` },
 ];
@@ -378,8 +390,10 @@ export const TRANS_BY_ID = Object.fromEntries(TRANSITIONS.map(t => [t.id, t]));
 export const FX_BY_ID = Object.fromEntries(EFFECTS.map(e => [e.id, e]));
 
 // Remapeamento de tempo (stutter / congelar): devolve o tempo local a usar
-export function remapTime(fx, local, dur, intensity) {
+export function remapTime(fx, local, dur, intensity, span = 5) {
   if (fx === 'freeze') return 0;
+  if (fx === 'rewind') return -(local / Math.max(0.01, dur)) * span;   // volta no tempo
+
   if (fx === 'stutter') {
     const L = 0.06 + (1 - intensity) * 0.14;       // tamanho do pedaço repetido
     const reps = 3;

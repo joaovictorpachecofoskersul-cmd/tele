@@ -9,8 +9,29 @@ import { SR } from './audio.js';
 export const QUALITIES = [
   { id: 'alta', name: 'Alta (10 Mbps)', bitrate: 10e6 },
   { id: 'normal', name: 'Normal (6 Mbps)', bitrate: 6e6 },
-  { id: 'leve', name: 'Leve, para WhatsApp (3,5 Mbps)', bitrate: 3.5e6 },
+  { id: 'leve', name: 'Leve (3,5 Mbps)', bitrate: 3.5e6 },
 ];
+
+// presets por plataforma. maxMB: o arquivo final fica abaixo desse tamanho
+export const PLATFORMS = [
+  { id: 'reels', name: 'Instagram Reels', bitrate: 8e6, note: 'Até 3 min. Ideal 15 a 60 s.' },
+  { id: 'tiktok', name: 'TikTok', bitrate: 8e6, note: 'Deixe a direita livre (ícones do app).' },
+  { id: 'shorts', name: 'YouTube Shorts', bitrate: 10e6, note: 'Até 3 min.' },
+  { id: 'youtube', name: 'YouTube (vídeo longo)', bitrate: 12e6, note: 'Melhor no formato 16:9. Exporte também a legenda .srt.' },
+  { id: 'whats', name: 'WhatsApp (menos de 30 MB)', maxMB: 30, note: 'Calcula a qualidade para caber em 30 MB.' },
+  { id: 'status', name: 'Status do WhatsApp (menos de 16 MB)', maxMB: 16, scale: 2 / 3, note: 'Em 720p. O status aceita até 60 s.' },
+];
+
+// qualidade final de um preset para a duração do vídeo
+export function platformSettings(pl, dur) {
+  if (!pl.maxMB) return { bitrate: pl.bitrate, scale: pl.scale || 1, abitrate: 192e3 };
+  const ab = 128e3;
+  const total = pl.maxMB * 1e6 * 8 / Math.max(1, dur) * 0.88;
+  let br = Math.max(4e5, Math.min(8e6, total - ab));
+  let scale = pl.scale || 1;
+  if (br < 2.5e6 && scale > 2 / 3) scale = 2 / 3;   // pouco espaço: 720p fica mais nítido que 1080p espremido
+  return { bitrate: br, scale, abitrate: ab };
+}
 
 function once(el, ev, ms = 15000) {
   return new Promise((res, rej) => {
@@ -137,7 +158,9 @@ class ExportProvider {
 
 export async function exportVideo(app, opt, onProgress, abort) {
   const p = JSON.parse(JSON.stringify(app.project));
-  const [W, H] = dims(p);
+  const [W0, H0] = dims(p);
+  const sc = opt.scale && opt.scale < 1 ? opt.scale : 1;
+  const W = Math.round(W0 * sc / 2) * 2, H = Math.round(H0 * sc / 2) * 2;
   const fps = p.fps || 30;
   const L = layout(p);
   if (!L.total) throw new Error('O projeto está vazio.');
@@ -160,7 +183,7 @@ export async function exportVideo(app, opt, onProgress, abort) {
   const vs = new MB.CanvasSource(canvas, { codec: vcodec, bitrate: opt.bitrate, keyFrameInterval: 2 });
   output.addVideoTrack(vs, { frameRate: fps });
   let as = null;
-  if (acodec) { as = new MB.AudioBufferSource({ codec: acodec, bitrate: 192e3 }); output.addAudioTrack(as); }
+  if (acodec) { as = new MB.AudioBufferSource({ codec: acodec, bitrate: opt.abitrate || 192e3 }); output.addAudioTrack(as); }
   await output.start();
 
   if (as) {

@@ -12,6 +12,7 @@ import { exportVideo } from './export.js';
 import { needsProxy, makeProxy } from './proxy.js';
 import * as P from './panels.js';
 import { h, $, toast, confirmBox, promptBox, btn } from './ui.js';
+import { svgIcon } from './icons.js';
 
 const isApp = !!(window.Android && window.Android.begin);
 
@@ -90,6 +91,7 @@ async function openProject(p) {
     }
     await preloadBlobs();
     for (const it of p.items) if (it.kind === 'image' && it.p.mid) await loadItemImage(it.p.mid);
+    if (p.captions && p.captions.marker && p.captions.marker.mid) await loadItemImage(p.captions.marker.mid);
     setTimeout(optimizeInBackground, 500);
     $('#home').hidden = true; $('#editor').hidden = false;
     $('#pname').textContent = p.name;
@@ -258,6 +260,7 @@ async function ensureEnv(mid, onProgress) {
 async function loadItemImage(mid) {
   try { app.renderer.images.set(mid, await createImageBitmap(await app.getBlob(mid))); } catch (e) { }
 }
+app.loadItemImage = loadItemImage;
 
 app.importFiles = async mode => {
   const files = await pickFiles('video/*,image/*', true);
@@ -685,63 +688,104 @@ app.openTransition = i => P.transitionPanel(app, i);
 app.openAudio = () => P.audioPanel(app);
 
 function tool(icon, label, fn, cls = '') {
-  const b = h('button', { class: 'tool ' + cls, type: 'button' }, h('span', { class: 'ti-i' }, icon), h('span', {}, label));
+  const ic = svgIcon(icon) || h('span', { class: 'ti-i' }, icon);
+  const b = h('button', { class: 'tool ' + cls, type: 'button' }, ic, h('span', { class: 'tl' }, label));
   b.addEventListener('click', fn);
   return b;
 }
+
+// barra de baixo em dois níveis, como no CapCut: categorias e, ao tocar, as ferramentas dela
+app.toolLevel = null;
+function openLevel(k) { app.toolLevel = k; updateToolbar(); }
+function addText() {
+  const it = app.addItem('text', { text: 'SEU TEXTO', font: 'Poppins', size: .09, color: '#FFFFFF', stroke: '#000000', bg: '', x: .5, y: .3, anim: 'pop', upper: true }, null, 3);
+  P.itemPanel(app, it);
+}
+function nearestCut() {
+  const L = layout(app.project); const n = app.project.clips.length;
+  if (n < 2) { toast('Coloque pelo menos dois clipes para usar transição'); return; }
+  let best = 0, bd = 1e9; for (let i = 0; i < n - 1; i++) { const d = Math.abs(L.starts[i + 1] - app.time); if (d < bd) { bd = d; best = i; } }
+  app.openTransition(best);
+}
+const LEVELS = {
+  editar: { name: 'Editar', tools: () => [
+    tool('split', 'Dividir', () => app.splitAtPlayhead()),
+    tool('pause', 'Cortar pausas', () => app.cutSilences()),
+    tool('dice', 'Surpreenda-me', () => P.surprise(app)),
+    tool('format', 'Formato', () => P.formatPanel(app)),
+    tool('plus', 'Adicionar mídia', () => app.importFiles('cursor')),
+  ] },
+  audio: { name: 'Áudio', tools: () => [
+    tool('music', 'Música', () => P.audioPanel(app)),
+    tool('wave', 'Efeitos sonoros', () => P.soundsPanel(app)),
+    tool('mic', 'Narrar', () => app.recordNarration()),
+    tool('plus', 'Áudio do celular', () => app.addNarrationFile()),
+    tool('beat', 'Batida', () => P.audioPanel(app)),
+  ] },
+  texto: { name: 'Texto', tools: () => [
+    tool('text', 'Adicionar texto', addText),
+    tool('captions', 'Legenda automática', () => P.captionsPanel(app)),
+    tool('pencil', 'Corrigir legenda', () => P.captionsEditor(app)),
+    tool('card', 'Cartelas', () => P.elementsPanel(app, 'Cartelas')),
+    tool('retain', 'Ganchos e CTA', () => P.elementsPanel(app, 'Retenção')),
+  ] },
+};
 
 function updateToolbar() {
   const bar = $('#tools');
   bar.innerHTML = '';
   const s = app.sel;
   const clip = app.selectedClip(), item = app.selectedItem();
+  const back = (label, fn) => h('button', { class: 'tool back', type: 'button', onclick: fn }, svgIcon('back', 24), h('span', { class: 'tl' }, label));
+  const row = h('div', { class: 'trow' });
   if (clip) {
-    bar.append(
-      tool('✂', 'Dividir', () => app.splitAtPlayhead()),
-      tool('⏩', 'Velocidade', () => P.clipPanel(app, clip, 'speed')),
-      tool('🔊', 'Volume', () => P.clipPanel(app, clip, 'vol')),
-      tool('⛶', 'Enquadrar', () => P.clipPanel(app, clip, 'frame')),
-      tool('✦', 'Efeitos', () => P.clipPanel(app, clip, 'fx')),
-      tool('〰', 'Silêncios', () => app.cutSilences([clip])),
-      tool('⧉', 'Duplicar', () => app.duplicateClip(clip)),
-      tool('…', 'Mais', () => P.clipPanel(app, clip, 'more')),
-      tool('🗑', 'Excluir', () => app.deleteSelected(), 'danger'),
+    bar.append(back('Clipe', () => { app.select(null); }));
+    row.append(
+      tool('split', 'Dividir', () => app.splitAtPlayhead()),
+      tool('speed', 'Velocidade', () => P.clipPanel(app, clip, 'speed')),
+      tool('volume', 'Volume', () => P.clipPanel(app, clip, 'vol')),
+      tool('crop', 'Enquadrar', () => P.clipPanel(app, clip, 'frame')),
+      tool('effects', 'Efeitos', () => P.clipPanel(app, clip, 'fx')),
+      tool('pause', 'Pausas', () => app.cutSilences([clip])),
+      tool('duplicate', 'Duplicar', () => app.duplicateClip(clip)),
+      tool('more', 'Mais', () => P.clipPanel(app, clip, 'more')),
+      tool('trash', 'Excluir', () => app.deleteSelected(), 'danger'),
     );
   } else if (item) {
-    bar.append(
-      tool('✎', 'Editar', () => P.itemPanel(app, item)),
-      tool('⇤', 'No cursor', () => { app.moveItem(item, app.time); app.commit(); }),
-      tool('▶', 'Ver', () => app.replayItem(item)),
-      tool('⧉', 'Duplicar', () => app.duplicateItem(item)),
-      tool('🗑', 'Excluir', () => app.deleteSelected(), 'danger'),
+    bar.append(back('Item', () => { app.select(null); }));
+    row.append(
+      tool('pencil', 'Editar', () => P.itemPanel(app, item)),
+      tool('cursor', 'No cursor', () => { app.moveItem(item, app.time); app.commit(); }),
+      tool('play', 'Ver', () => app.replayItem(item)),
+      tool('duplicate', 'Duplicar', () => app.duplicateItem(item)),
+      ...(!['sfx', 'audio', 'effect'].includes(item.kind) ? [tool('star', 'Salvar', () => P.saveMyElement(app, item))] : []),
+      tool('trash', 'Excluir', () => app.deleteSelected(), 'danger'),
     );
   } else if (s && s.type === 'captions') {
-    bar.append(
-      tool('Aa', 'Estilo', () => P.captionsPanel(app)),
-      tool('✎', 'Corrigir', () => P.captionsEditor(app)),
-      tool(app.project.captions.on ? '◉' : '○', app.project.captions.on ? 'Ocultar' : 'Mostrar', () => { app.project.captions.on = !app.project.captions.on; app.commit(); }),
+    bar.append(back('Legenda', () => { app.select(null); }));
+    row.append(
+      tool('style', 'Estilo', () => P.captionsPanel(app)),
+      tool('pencil', 'Corrigir', () => P.captionsEditor(app)),
+      tool(app.project.captions.on ? 'eyeoff' : 'eye', app.project.captions.on ? 'Ocultar' : 'Mostrar', () => { app.project.captions.on = !app.project.captions.on; app.commit(); }),
     );
+  } else if (app.toolLevel && LEVELS[app.toolLevel]) {
+    bar.append(back(LEVELS[app.toolLevel].name, () => openLevel(null)));
+    row.append(...LEVELS[app.toolLevel].tools());
   } else {
-    bar.append(
-      tool('＋', 'Mídia', () => app.importFiles('cursor')),
-      tool('▦', 'Modelos', () => P.templatesPanel(app)),
-      tool('✂', 'Dividir', () => app.splitAtPlayhead()),
-      tool('🎙', 'Legendas', () => P.captionsPanel(app)),
-      tool('𝐓', 'Texto', () => { const it = app.addItem('text', { text: 'SEU TEXTO', font: 'Poppins', size: .09, color: '#FFFFFF', stroke: '#000000', bg: '', x: .5, y: .3, anim: 'pop', upper: true }, null, 3); P.itemPanel(app, it); }),
-      tool('◈', 'Elementos', () => P.elementsPanel(app)),
-      tool('✦', 'Efeitos', () => P.effectsPanel(app)),
-      tool('⧓', 'Transições', () => {
-        const L = layout(app.project); const n = app.project.clips.length;
-        if (n < 2) { toast('Coloque pelo menos dois clipes para usar transição'); return; }
-        let best = 0, bd = 1e9; for (let i = 0; i < n - 1; i++) { const d = Math.abs(L.starts[i + 1] - app.time); if (d < bd) { bd = d; best = i; } }
-        app.openTransition(best);
-      }),
-      tool('♪', 'Áudio', () => P.audioPanel(app)),
-      tool('◆', 'Sons', () => P.soundsPanel(app)),
-      tool('〰', 'Cortar pausas', () => app.cutSilences()),
-      tool('▭', 'Formato', () => P.formatPanel(app)),
+    row.append(
+      tool('edit', 'Editar', () => openLevel('editar')),
+      tool('template', 'Modelos', () => P.templatesPanel(app)),
+      tool('music', 'Áudio', () => openLevel('audio')),
+      tool('text', 'Texto', () => openLevel('texto')),
+      tool('captions', 'Legendas', () => P.captionsPanel(app)),
+      tool('sticker', 'Elementos', () => P.elementsPanel(app)),
+      tool('chart', 'Gráficos', () => P.elementsPanel(app, 'Gráficos')),
+      tool('effects', 'Efeitos', () => P.effectsPanel(app)),
+      tool('transition', 'Transições', nearestCut),
+      tool('format', 'Formato', () => P.formatPanel(app)),
     );
   }
+  bar.append(row);
   $('#undo').disabled = !app.history.canUndo();
   $('#redo').disabled = !app.history.canRedo();
 }
@@ -875,7 +919,7 @@ app.runExport = async q => {
   busy({ title: 'Exportando vídeo', detail: 'Preparando', progress: 0, cancel: () => { ctl.aborted = true; busyUpdate({ detail: 'Cancelando...' }); } });
   const t0 = Date.now();
   try {
-    const r = await exportVideo(app, { bitrate: q.bitrate }, (k, msg, eta) => {
+    const r = await exportVideo(app, { bitrate: q.bitrate, scale: q.scale, abitrate: q.abitrate }, (k, msg, eta) => {
       busyUpdate({ progress: k, detail: msg + (eta ? ` · faltam ~${Math.ceil(eta / 60) > 1 ? Math.ceil(eta / 60) + ' min' : Math.ceil(eta) + ' s'}` : '') });
     }, ctl);
     busyDone();
@@ -924,17 +968,18 @@ async function saveBlob(blob, name, quiet) {
       if (!r.startsWith('ok')) throw new Error(r);
       savedName = name;
       busyDone();
-      if (!quiet) toast('Salvo na galeria, pasta Filmes/Editor', 3500);
+      if (!quiet) toast(blob.type.startsWith('video/') ? 'Salvo na galeria, pasta Filmes/Editor' : 'Salvo em Downloads/Editor', 3500);
       return true;
     } catch (e) { busyDone(); toast('Erro ao salvar: ' + e.message, 5000); return false; }
   }
   const a = h('a', { href: URL.createObjectURL(blob), download: name });
   document.body.append(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 4000);
-  toast('Vídeo baixado');
+  toast(blob.type.startsWith('video/') ? 'Vídeo baixado' : 'Arquivo baixado');
   return true;
 }
 
 // ganchos para teste automatizado
+app.saveText = (text, name, mime = 'application/x-subrip') => saveBlob(new Blob([text], { type: mime }), name);
 app._test = {
   async newWithFiles(files) { const p = newProject('Teste'); await store.putProject(p); await openProject(p); await addFiles(files, 'append'); },
   ensureEnv, showHome, openProject,

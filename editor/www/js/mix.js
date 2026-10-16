@@ -37,7 +37,7 @@ export function sfxEvents(p) {
 // Janelas de remapeamento de tempo (repetir / congelar)
 function remapWindows(p) {
   return p.items.filter(it => it.kind === 'effect' && FX_BY_ID[it.p.fx] && FX_BY_ID[it.p.fx].timeRemap)
-    .map(it => ({ a: it.start, b: it.start + it.dur, fx: it.p.fx, i: it.p.i ?? FX_BY_ID[it.p.fx].def.i }));
+    .map(it => ({ a: it.start, b: it.start + it.dur, fx: it.p.fx, i: it.p.i ?? FX_BY_ID[it.p.fx].def.i, span: it.p.span ?? 5 }));
 }
 
 export async function mixProject(p, getBlob, onProgress = () => { }) {
@@ -74,8 +74,8 @@ export async function mixProject(p, getBlob, onProgress = () => { }) {
     const t = n / SR;
     let tr = t, silent = false;
     for (const w of wins) if (t >= w.a && t < w.b) {
-      if (w.fx === 'freeze') silent = true;
-      tr = w.a + remapTime(w.fx, t - w.a, w.b - w.a, w.i);
+      if (w.fx === 'freeze' || w.fx === 'rewind') silent = true;
+      tr = Math.max(0, w.a + remapTime(w.fx, t - w.a, w.b - w.a, w.i, w.span));
     }
     if (silent) continue;
     while (ci < p.clips.length - 1 && tr >= Lay.starts[ci + 1]) ci++;

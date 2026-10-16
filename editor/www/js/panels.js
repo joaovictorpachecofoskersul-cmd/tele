@@ -1,12 +1,14 @@
 // Painéis de edição (folhas que sobem de baixo).
-import { h, section, slider, chips, swatches, toggle, btn, textInput, numInput, toast, confirmBox } from './ui.js';
+import { h, section, slider, chips, swatches, toggle, btn, textInput, numInput, toast, confirmBox, promptBox } from './ui.js';
 import { TRANSITIONS, EFFECTS, TRANS_BY_ID, FX_BY_ID } from './effects.js';
-import { ELEMENTS, TEXT_ANIMS } from './overlays.js';
-import { CAPTION_STYLES } from './captions.js';
+import { ELEMENTS, TEXT_ANIMS, drawItems } from './overlays.js';
+import { CAPTION_STYLES, toSRT } from './captions.js';
 import { ASR_MODELS } from './asr.js';
 import { FONT_CHOICES } from './fonts.js';
 import { SFX_LIST, BEAT_STYLES, ELEMENT_SFX } from './audio.js';
-import { QUALITIES } from './export.js';
+import { QUALITIES, PLATFORMS, platformSettings } from './export.js';
+import { BG_CHOICES } from './cartelas.js';
+import { MARKERS, MARKER_POS, defaultMarker } from './markers.js';
 import { FORMATS, layout, clipDur, transDur, fmtTime } from './project.js';
 
 const pct = v => Math.round(v * 100) + '%';
@@ -94,6 +96,27 @@ function fxGrid(list, onPick) {
 }
 
 // ------------------------------------------------------------------ transição
+// sorteia transições sem repetir as usadas nos últimos vídeos (histórico no aparelho)
+export function surprise(app) {
+  const p = app.project;
+  let hist = [];
+  try { hist = JSON.parse(localStorage.getItem('ed.recentTrans') || '[]'); } catch (e) { }
+  const pool = TRANSITIONS.filter(t => t.id !== 'none' && t.id !== 'mask');
+  const used = [];
+  p.clips.forEach((x, k) => {
+    if (k >= p.clips.length - 1) return;
+    let cand = pool.filter(t => !hist.includes(t.id) && !used.includes(t.id));
+    if (!cand.length) cand = pool.filter(t => !used.slice(-3).includes(t.id));
+    if (!cand.length) cand = pool;
+    const t = cand[Math.floor(Math.random() * cand.length)];
+    used.push(t.id); x.trans = { id: t.id, dur: t.dur || 0.4, text: 'WOW' };
+  });
+  hist = [...used, ...hist].slice(0, Math.min(18, pool.length - 6));
+  try { localStorage.setItem('ed.recentTrans', JSON.stringify(hist)); } catch (e) { }
+  app.commit();
+  toast(used.length ? 'Transições sorteadas sem repetir as últimas que você usou' : 'Coloque pelo menos 2 clipes para ter transições');
+}
+
 export function transitionPanel(app, i) {
   const p = app.project;
   const c = p.clips[i];
@@ -123,17 +146,7 @@ export function transitionPanel(app, i) {
   draw();
   body.append(extra, grid, h('div', { class: 'brow' },
     btn('Usar em todas', () => { p.clips.forEach((x, k) => { if (k < p.clips.length - 1) x.trans = { ...c.trans }; }); app.commit(); toast('Aplicada em todas as emendas'); }),
-    btn('Sortear diferentes', () => {
-      const pool = TRANSITIONS.filter(t => t.id !== 'none' && t.id !== 'mask');
-      const used = new Set();
-      p.clips.forEach((x, k) => {
-        if (k >= p.clips.length - 1) return;
-        let t; let guard = 0;
-        do { t = pool[Math.floor(Math.random() * pool.length)]; } while (used.has(t.id) && used.size < pool.length && guard++ < 50);
-        used.add(t.id); x.trans = { id: t.id, dur: t.dur, text: 'WOW' };
-      });
-      app.commit(); draw(); toast('Cada emenda ganhou uma transição diferente');
-    }),
+    btn('🎲 Surpreenda-me', () => { surprise(app); draw(); }),
     btn('Tirar todas', () => { p.clips.forEach(x => x.trans = { id: 'none', dur: 0.4, text: 'WOW' }); app.commit(); draw(); }),
   ));
   app.sel = { type: 'trans', index: i };
@@ -141,24 +154,191 @@ export function transitionPanel(app, i) {
 }
 
 // ------------------------------------------------------------------ elementos
-export function elementsPanel(app) {
-  const grid = h('div', { class: 'grid' }, ELEMENTS.map(e => {
-    const b = h('button', { class: 'gi', type: 'button' }, h('span', { class: 'gi-i' }, ICON[e.kind] || '◻'), e.name);
-    b.addEventListener('click', async () => {
-      const p = JSON.parse(JSON.stringify(e.p));
-      if (e.needsImage) {
-        const mid = await app.importImageForItem(); if (!mid) return; p.mid = mid;
-      }
-      const dur = e.whole ? layout(app.project).total : e.kind === 'card' ? 2.5 : e.kind === 'confetti' ? 2.5 : e.kind === 'stamp' ? 1.8 : 3;
-      const it = app.addItem(e.kind, p, e.whole ? 0 : null, dur);
-      itemPanel(app, it);
-    });
-    return b;
-  }));
-  app.openSheet('Elementos', h('div', {}, h('p', { class: 'hint' }, 'O elemento entra na posição do cursor. Depois você arrasta na prévia e ajusta a duração na linha do tempo.'), grid));
+// ------------------------------------------------------------------ galeria de elementos (estilo CapCut)
+const GROUP_OF = {
+  text: 'Texto', stamp: 'Texto', counter: 'Texto', censor: 'Texto', knockout: 'Texto', card: 'Texto', lower: 'Texto', pill: 'Texto', bubble: 'Texto', module: 'Texto',
+  follow: 'Redes sociais', like: 'Redes sociais', click: 'Redes sociais', tap: 'Redes sociais', bell: 'Redes sociais', notif: 'Redes sociais', swipe: 'Redes sociais', comment: 'Redes sociais', poll: 'Redes sociais', share: 'Redes sociais',
+  arrows: 'Destaques', arrow: 'Destaques', circle: 'Destaques', emoji: 'Destaques', confetti: 'Destaques', floaters: 'Destaques', progress: 'Destaques', blurbox: 'Destaques', image: 'Destaques',
+  checklist: 'Dados', people: 'Dados', map: 'Dados', bars: 'Dados',
+};
+const RED = '#EB1E28', YEL = '#FFDE00';
+// kits prontos com as identidades (estilos)
+const KITS = [
+  { kit: 'Brasileirando', kind: 'r_headline', name: 'Manchete com local e data', p: { tag: 'CUIABÁ · 2026', l1: 'ELE FALOU ISSO NA', l2: 'CARA DE TODO MUNDO', tagColor: RED, color2: YEL, alpha: .8, x: .5, y: .07 } },
+  { kit: 'Brasileirando', kind: 'r_cta', name: 'SEGUE O PERFIL', p: { text: 'SEGUE O PERFIL', sub: 'E ASSISTE ATÉ O FIM', color: RED, x: .5, y: .84 } },
+  { kit: 'Brasileirando', kind: 'r_blink', name: 'ESPERA O FINAL', p: { text: 'ESPERA O FINAL', size: .045, hz: 3, color: '#FFFFFF', bg: RED, x: .5, y: .24 } },
+  { kit: 'Brasileirando', kind: 'r_nametag', name: 'Nome de político', p: { name: 'NOME DO POLÍTICO', dir: 'baixo', bg: YEL, color: '#111111', x: .5, y: .3 } },
+  { kit: 'Brasileirando', kind: 'c_final', name: 'Card DIA 25 É LULA 13', p: { bg: 'escuro', fonte: '', speed: 1, l1: 'DIA 25 É', l2: 'LULA 13', cta1: 'COMENTA O QUE ACHOU', cta2: 'SEGUE O PERFIL', pillColor: RED } },
+  { kit: 'BORA LULA', kind: 'pill', name: 'Cabeçalho BORA LULA', p: { text: 'BORA LULA', bg: RED, color: '#FFFFFF', x: .5, y: .06, size: .045 } },
+  { kit: 'BORA LULA', kind: 'stamp', name: 'Carimbo VOTA 13', p: { text: 'VOTA 13', color: RED, x: .5, y: .45, size: .14, rot: -10 } },
+  { kit: 'BORA LULA', kind: 'card', name: 'Card LULA 13', p: { title: 'LULA 13', sub: '25 DE OUTUBRO · VOTE 13', bg: RED, bg2: '#7F0A10', color: '#FFFFFF', confetti: true, comment: 'COMENTA: 13' } },
+  { kit: 'Minicurso', kind: 'module', name: 'Card de módulo', p: { num: 'MÓDULO 1', title: 'Título da aula', bg: '#173B32', accent: '#F0B429' } },
+  { kit: 'Minicurso', kind: 'pill', name: 'Etiqueta de aula', p: { text: 'AULA 1 DE 5', bg: '#F0B429', color: '#173B32', x: .5, y: .1, size: .045 } },
+  { kit: 'Minicurso', kind: 'checklist', name: 'Lista da aula', p: { text: 'Primeiro ponto\nSegundo ponto\nTerceiro ponto', x: .5, y: .45, size: .055, color: '#FFFFFF', check: '#F0B429', box: 'rgba(23,59,50,.85)' } },
+  { kit: 'Minicurso', kind: 'lower', name: 'Nome do professor', p: { name: 'NOME', role: 'Professor(a)', color: '#F0B429', x: .05, y: .74 } },
+];
+const groupOf = e => e.kit ? 'Kits' : e.group || GROUP_OF[e.kind] || 'Destaques';
+const keyOf = e => e.kind + '|' + e.name;
+const lsGet = (k, d) => { try { return JSON.parse(localStorage.getItem(k) || '') ?? d; } catch (e) { return d; } };
+const lsSet = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { } };
+
+export function saveMyElement(app, it) {
+  promptBox('Nome para este elemento:', (ELEMENTS.find(e => e.kind === it.kind) || {}).name || 'Meu elemento').then(name => {
+    if (!name || !name.trim()) return;
+    const mine = lsGet('ed.myEls', []);
+    mine.unshift({ kind: it.kind, name: name.trim(), p: JSON.parse(JSON.stringify(it.p)), dur: it.dur, mine: true });
+    lsSet('ed.myEls', mine.slice(0, 60));
+    toast('Salvo em Elementos › Meus');
+  });
 }
 
-const ICON = { pill: '⬭', checklist: '☑', people: '👥', map: '🗺', bars: '▥', module: '▣', floaters: '◌', blurbox: '▒', like: '♥', click: '↖', tap: '☝', bell: '🔔', notif: '▭', swipe: '⌃', comment: '💬', poll: '▤', arrows: '»', share: '↪', text: '𝐓', stamp: '⛝', counter: '#', censor: '▬', knockout: '◩', card: '▣', emoji: '☺', arrow: '➜', circle: '◯', confetti: '✺', progress: '▭', image: '🖼', lower: '▤', follow: '♥', bubble: '💬' };
+// miniatura renderizada de verdade (desenha o elemento num quadro pequeno)
+const thumbCache = new Map();
+function renderThumb(e) {
+  const k = keyOf(e) + (e.mine ? JSON.stringify(e.p).length : '');
+  if (thumbCache.has(k)) return thumbCache.get(k);
+  const W = 240, H = 240, BW = 540, BH = 960;
+  let big = document.createElement('canvas'); big.width = BW; big.height = BH;
+  const bx = big.getContext('2d', { willReadFrequently: true });
+  const full = /^c_/.test(e.kind) || ['card', 'module', 'confetti', 'floaters', 'r_frame', 'r_money', 'progress', 'knockout'].includes(e.kind);
+  const dur = /^c_/.test(e.kind) ? 6 : 3;
+  const it = { id: 'th', kind: e.kind, start: 0, dur, p: JSON.parse(JSON.stringify(e.p)) };
+  const t = /^c_/.test(e.kind) ? 3.2 : e.kind === 'checklist' ? 2.6 : e.kind === 'confetti' ? 0.7 : 1.5;
+  try {
+    drawItems(bx, { items: [it], media: {}, captions: {}, clips: [], format: '9:16' }, t, BW, BH,
+      { scratch: (w, h) => { const s = document.createElement('canvas'); s.width = w; s.height = h; return s; }, image: () => null, total: dur });
+  } catch (err) { /* sem prévia */ }
+  const c = document.createElement('canvas'); c.width = W; c.height = H;
+  const ctx = c.getContext('2d');
+  // fundo atrás do desenho
+  const bg = document.createElement('canvas'); bg.width = BW; bg.height = BH;
+  const gx = bg.getContext('2d');
+  const g = gx.createLinearGradient(0, 0, BW, BH); g.addColorStop(0, '#52525B'); g.addColorStop(1, '#1C1C22');
+  gx.fillStyle = g; gx.fillRect(0, 0, BW, BH); gx.drawImage(big, 0, 0);
+  // limites reais do que foi desenhado (pixels não transparentes)
+  let b = null;
+  if (!full) {
+    const d = bx.getImageData(0, 0, BW, BH).data;
+    let x0 = BW, y0 = BH, x1 = -1, y1 = -1;
+    for (let y = 0; y < BH; y += 2) for (let x = 0; x < BW; x += 2) if (d[(y * BW + x) * 4 + 3] > 20) { if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; }
+    if (x1 > x0) b = { x: x0, y: y0, w: x1 - x0 + 2, h: y1 - y0 + 2 };
+  }
+  big = bg;
+  if (b && b.w > 4 && b.h > 4) {
+    // recorta em volta do elemento (com folga) mantendo a proporção da miniatura
+    let cw = Math.max(150, b.w * 1.2, b.h * 1.2 * W / H), ch = cw * H / W;
+    cw = Math.min(cw, BW); ch = Math.min(ch, BH);
+    const cx = Math.max(0, Math.min(BW - cw, b.x + b.w / 2 - cw / 2)), cy = Math.max(0, Math.min(BH - ch, b.y + b.h / 2 - ch / 2));
+    ctx.drawImage(big, cx, cy, cw, ch, 0, 0, W, H);
+  } else ctx.drawImage(big, 0, (BH - BW * H / W) / 2, BW, BW * H / W, 0, 0, W, H);
+  thumbCache.set(k, c);
+  return c;
+}
+
+export function elementsPanel(app, startTab) {
+  const all = [...ELEMENTS, ...KITS];
+  const groups = ['Destaques', 'Texto', 'Redes sociais', 'Retenção', 'Cartelas', 'Gráficos', 'Dados', 'Kits'];
+  let tab = startTab || lsGet('ed.elTab', 'Recentes');
+  let q = '';
+  const tabs = h('div', { class: 'etabs' });
+  const grid = h('div', { class: 'egrid' });
+  const hint = h('p', { class: 'hint' });
+  const add = async e => {
+    const p = JSON.parse(JSON.stringify(e.p));
+    if (e.needsImage) { const mid = await app.importImageForItem(); if (!mid) return; p.mid = mid; }
+    const rec = lsGet('ed.recentEl', []).filter(k => k !== keyOf(e) || e.mine);
+    if (!e.mine) { rec.unshift(keyOf(e)); lsSet('ed.recentEl', rec.slice(0, 24)); }
+    const dur = e.dur || (e.whole ? layout(app.project).total : /^c_/.test(e.kind) ? 5 : e.kind === 'card' ? 2.5 : e.kind === 'confetti' ? 2.5 : e.kind === 'stamp' ? 1.8 : e.kind === 'r_frame' || e.kind === 'r_cta' ? 5 : 3);
+    const it = app.addItem(e.kind, p, e.whole ? 0 : null, dur);
+    itemPanel(app, it);
+  };
+  const list = () => {
+    if (q) { const n = q.toLowerCase(); return all.concat(lsGet('ed.myEls', [])).filter(e => (e.name + ' ' + groupOf(e) + ' ' + (e.kit || '')).toLowerCase().includes(n)); }
+    if (tab === 'Recentes') { const rec = lsGet('ed.recentEl', []); return rec.map(k => all.find(e => keyOf(e) === k)).filter(Boolean); }
+    if (tab === 'Meus') return lsGet('ed.myEls', []);
+    return all.filter(e => groupOf(e) === tab);
+  };
+  const draw = () => {
+    tabs.innerHTML = '';
+    for (const g of ['Recentes', 'Meus', ...groups]) {
+      const b = h('button', { class: 'etab' + (g === tab && !q ? ' on' : ''), type: 'button' }, g);
+      b.addEventListener('click', () => { tab = g; q = ''; search.value = ''; lsSet('ed.elTab', g); draw(); });
+      tabs.append(b);
+    }
+    const items = list();
+    hint.textContent = !items.length ? (tab === 'Recentes' ? 'Os elementos que você usar aparecem aqui.' : tab === 'Meus' ? 'Edite um elemento do seu jeito e toque em "Salvar" (estrela) na barra de baixo para guardar aqui.' : 'Nada encontrado.')
+      : tab === 'Kits' && !q ? 'Kits prontos com as cores de cada estilo: Brasileirando, BORA LULA e Minicurso.' : 'O elemento entra no cursor. Depois arraste na prévia e ajuste a duração na linha do tempo.';
+    grid.innerHTML = '';
+    let lastKit = null;
+    items.forEach((e, i) => {
+      if (tab === 'Kits' && !q && e.kit !== lastKit) { lastKit = e.kit; grid.append(h('div', { class: 'sec-t', style: { gridColumn: '1/-1' } }, e.kit)); }
+      const th = h('div', { class: 'eth' }, ICON[e.kind] || '◻');
+      const card = h('button', { class: 'eit', type: 'button' }, th, h('span', {}, e.name));
+      card.addEventListener('click', ev => { if (ev.target.classList.contains('x')) return; add(e); });
+      if (e.mine && tab === 'Meus' && !q) {
+        const x = h('span', { class: 'x' }, '✕');
+        x.addEventListener('click', async () => {
+          if (!(await confirmBox(`Apagar "${e.name}" dos seus elementos?`, 'Apagar'))) return;
+          const mine = lsGet('ed.myEls', []); mine.splice(i, 1); lsSet('ed.myEls', mine); draw();
+        });
+        th.append(x);
+      }
+      grid.append(card);
+      // prévia desenhada aos poucos para não travar
+      const job = () => { if (!document.body.contains(th)) return; const c = renderThumb(e); th.firstChild && th.firstChild.nodeType === 3 && th.firstChild.remove(); th.prepend(c); };
+      (window.requestIdleCallback || (f => setTimeout(f, 16)))(job);
+    });
+  };
+  const search = h('input', { class: 'esearch', type: 'search', placeholder: 'Buscar elemento (ex.: seta, ano, pesquisa)' });
+  search.addEventListener('input', () => { q = search.value.trim(); draw(); });
+  draw();
+  app.openSheet('Elementos', h('div', {}, tabs, search, hint, grid));
+}
+
+const ICON = { c_year: '📅', c_period: '⏳', c_date: '📆', c_timeline: '⇥', c_two: '⇄', c_list: '☰', c_phrase: '❝', c_quote: '❞', c_final: '▣', g_vbars: '▥', g_line: '📈', g_pie: '◔', g_ring: '◯', g_poll: '⚖', g_versus: '✕', g_table: '▦', g_countdown: '⏱', g_odometer: '🔢', r_cta: '★', r_headline: '📰', r_nametag: '🏷', r_blink: '⚡', r_frame: '▢', r_money: '$', pill: '⬭', checklist: '☑', people: '👥', map: '🗺', bars: '▥', module: '▣', floaters: '◌', blurbox: '▒', like: '♥', click: '↖', tap: '☝', bell: '🔔', notif: '▭', swipe: '⌃', comment: '💬', poll: '▤', arrows: '»', share: '↪', text: '𝐓', stamp: '⛝', counter: '#', censor: '▬', knockout: '◩', card: '▣', emoji: '☺', arrow: '➜', circle: '◯', confetti: '✺', progress: '▭', image: '🖼', lower: '▤', follow: '♥', bubble: '💬' };
+
+
+// rótulos dos campos das cartelas, gráficos e elementos de retenção
+const LBL = {
+  label: 'Texto de cima', from: 'De', to: 'Até', dur2: 'Tempo da contagem (s)', sub: 'Texto de baixo', top: 'Linha de cima', big: 'Número grande',
+  line1: 'Linha 1', line2: 'Linha 2', note: 'Observação', year: 'Ano', title: 'Título', title2: 'Título (linha 2)', start: 'Ano inicial', end: 'Ano final',
+  segs: 'Trechos destacados (ex.: 2003-2016, 2023-2026)', t2: 'Quando destacar (s)', segLabel: 'Texto do destaque', segLine: 'Linha do destaque', segColor: 'Cor do destaque',
+  l1: 'Linha 1', l2: 'Linha 2', a: 'Valor da esquerda', b: 'Valor da direita', la: 'Legenda da esquerda', lb: 'Legenda da direita',
+  items: 'Itens (um por linha: ANO · texto / linha 2)', step: 'Etapa', text: 'Texto', author: 'Autor', cta1: 'Chamada 1', cta2: 'Botão', pillColor: 'Cor do botão',
+  data: 'Dados (um por linha, "Nome: valor")', highlight: 'Destaque', suffix: 'Depois do número', color: 'Cor', color2: 'Cor 2', pct: 'Porcentagem',
+  na: 'Nome A', nb: 'Nome B', pa: '% de A', pb: '% de B', ca: 'Cor A', cb: 'Cor B', margin: 'Margem de erro', ta: 'Título da esquerda', tb: 'Título da direita',
+  left: 'Esquerda (+ a favor, - contra)', right: 'Direita (+ a favor, - contra)', bottom: 'Linha de baixo', fonte: 'Fonte (aparece no rodapé)',
+  tag: 'Etiqueta', tagColor: 'Cor da etiqueta', alpha: 'Fundo escuro', name: 'Nome', hz: 'Piscadas por segundo', size: 'Tamanho', inset: 'Margem',
+  speed: 'Velocidade da animação', donut: 'Rosca (furo no meio)', bg: 'Fundo',
+};
+const MULTI = new Set(['items', 'data', 'left', 'right', 'text']);
+const CHOICE = {
+  dir: [{ id: 'baixo', name: 'Seta embaixo' }, { id: 'cima', name: 'Seta em cima' }],
+  mode: [{ id: 'pulsar', name: 'Pulsar' }, { id: 'piscar', name: 'Piscar' }],
+};
+const RANGE = { speed: [0.3, 3, 0.05, pct], alpha: [0, 1, 0.01, pct], size: [0.02, 0.15, 0.002, v => Math.round(v * 1000)], inset: [0, 0.1, 0.002, pct], hz: [0.5, 8, 0.5, v => v], t2: [0.5, 15, 0.1, sec], dur2: [0.5, 10, 0.1, sec] };
+const isColor = v => typeof v === 'string' && /^(#|rgba?\()/.test(v);
+
+function genericFields(app, it, body, live, commit) {
+  const q = it.p;
+  const def = (ELEMENTS.find(e => e.kind === it.kind) || {}).p || {};
+  const keys = [...new Set([...Object.keys(def), ...Object.keys(q)])].filter(k => !['x', 'y', 'scale', 'rot', 'sound', 'mid'].includes(k));
+  const last = k => k === 'fonte' ? 3 : k === 'speed' ? 2 : k === 'bg' ? 1 : 0;
+  keys.sort((a, b) => last(a) - last(b));
+  for (const k of keys) {
+    const v = q[k] ?? def[k], name = LBL[k] || k;
+    if (k === 'bg' && (it.kind.startsWith('c_') || it.kind.startsWith('g_'))) {
+      body.append(section(name, chips(it.kind.startsWith('g_') ? [{ id: 'none', name: 'Sem fundo' }, ...BG_CHOICES] : BG_CHOICES, v, x => { q.bg = x; commit(); })));
+    } else if (CHOICE[k]) body.append(section(name, chips(CHOICE[k], v, x => { q[k] = x; commit(); })));
+    else if (typeof v === 'boolean') body.append(toggle(name, v, x => { q[k] = x; commit(); }));
+    else if (isColor(v)) body.append(section(name, swatches(v, x => { q[k] = x; commit(); })));
+    else if (typeof v === 'number' && RANGE[k]) { const r = RANGE[k]; body.append(slider(name, r[0], r[1], r[2], v, x => { q[k] = x; live(); }, r[3], commit)); }
+    else if (typeof v === 'number') body.append(h('div', { class: 'nrow' }, numInput(name, v, x => { q[k] = x; live(); }, commit)));
+    else body.append(h('div', {}, h('div', { class: 'sec-t' }, name), textInput(v ?? '', x => { q[k] = x; live(); }, { multiline: MULTI.has(k), onCommit: commit })));
+  }
+  if (!it.kind.startsWith('c_')) body.append(slider('Tamanho geral', 0.4, 2, 0.05, q.scale ?? 1, x => { q.scale = x; live(); }, pct, commit));
+  if (it.kind.startsWith('c_')) body.append(h('p', { class: 'hint' }, 'A cartela cobre a tela inteira. Use "Sobre o vídeo" no fundo para ver o vídeo por trás.'));
+}
 
 // ------------------------------------------------------------------ editor de item
 export function itemPanel(app, it) {
@@ -322,6 +502,11 @@ export function itemPanel(app, it) {
       const fx = FX_BY_ID[q.fx];
       body.append(h('div', { class: 'sec-t' }, 'Efeito: ' + (fx ? fx.name : '')),
         slider('Intensidade', 0, 1, 0.01, q.i ?? (fx ? fx.def.i : 0.7), v => { q.i = v; live(); }, pct, commit));
+      if (q.fx === 'spotlight') body.append(
+        slider('Posição horizontal', 0, 1, 0.01, q.cx ?? .5, v => { q.cx = v; live(); }, pct, commit),
+        slider('Posição vertical', 0, 1, 0.01, q.cy ?? .45, v => { q.cy = v; live(); }, pct, commit),
+        slider('Tamanho do foco', 0.05, 0.6, 0.01, q.r ?? .25, v => { q.r = v; live(); }, pct, commit));
+      if (q.fx === 'rewind') body.append(slider('Quanto volta (segundos)', 1, 20, 0.5, q.span ?? 5, v => { q.span = v; live(); }, sec, commit));
       if (q.fx === 'pulse') body.append(slider('Batidas por minuto', 60, 180, 1, q.bpm || 126, v => { q.bpm = v; live(); }, v => v, commit));
       body.append(section('Trocar por', fxGrid(EFFECTS, id => { q.fx = id; q.i = FX_BY_ID[id].def.i; commit(); itemPanel(app, it); })));
       break;
@@ -341,6 +526,8 @@ export function itemPanel(app, it) {
         return b;
       }))), slider('Volume', 0, 1.5, 0.05, q.vol ?? 0.8, v => { q.vol = v; }, pct, commit));
       break;
+    default:
+      if (/^[cgr]_/.test(it.kind)) genericFields(app, it, body, live, commit);
   }
   if (ELEMENT_SFX[it.kind]) body.append(toggle('Som automático deste elemento', q.sound !== false, v => { q.sound = v; commit(); }));
 
@@ -446,7 +633,10 @@ export function captionsPanel(app) {
       section('Cor das palavras fortes', swatches(cap.strong, v => { cap.strong = v; app.commit(); })),
       section('Fonte', chips(FONT_CHOICES.map(f => ({ id: f.id, name: f.name })), cap.font, v => { cap.font = v; app.commit(); })),
       toggle('MAIÚSCULAS', cap.upper, v => { cap.upper = v; app.commit(); }),
-      toggle('Estrelinha pulando na palavra', cap.star, v => { cap.star = v; app.commit(); }),
+      section('Palavras fortes',
+        h('p', { class: 'hint' }, 'Escreva as palavras que devem ficar na cor forte em todo o vídeo, separadas por vírgula (ex.: Lula, 13, fome). Também dá para tocar nas palavras em "Corrigir texto".'),
+        textInput(cap.strongList || '', v => { cap.strongList = v; app.live(true); }, { onCommit: () => app.commit(true), placeholder: 'Lula, 13, fome' })),
+      markerSection(app, cap, draw),
       has ? btn('✎ Corrigir texto e marcar palavras fortes', () => captionsEditor(app), 'pri') : null,
       has ? btn('Apagar toda a legenda', async () => { if (await confirmBox('Apagar a legenda de todos os vídeos?', 'Apagar')) { p.transcripts = {}; app.commit(true); draw(); } }, 'danger') : null,
     );
@@ -454,6 +644,54 @@ export function captionsPanel(app) {
   draw();
   app.sel = { type: 'captions' };
   app.openSheet('Legendas', body);
+}
+
+
+// ------------------------------------------------------------------ marcador da legenda
+const MK_KEY = 'ed.markerPresets';
+const loadMk = () => { try { return JSON.parse(localStorage.getItem(MK_KEY) || '[]'); } catch (e) { return []; } };
+const saveMk = a => { try { localStorage.setItem(MK_KEY, JSON.stringify(a)); } catch (e) { } };
+
+function markerSection(app, cap, redraw) {
+  if (!cap.marker) cap.marker = { ...defaultMarker(), on: !!cap.star, color: cap.star ? cap.strong : defaultMarker().color };
+  const m = cap.marker;
+  const c = () => { cap.star = false; app.commit(); };
+  const l = () => app.live();
+  const box = h('div', {});
+  box.append(toggle('Elemento pulando de palavra em palavra', m.on, v => { m.on = v; cap.star = false; app.commit(); redraw(); }));
+  if (!m.on) return section('Marcador', box);
+  const presets = loadMk();
+  box.append(
+    presets.length ? section('Meus marcadores', h('div', { class: 'brow' }, presets.map((pr, i) => h('span', { class: 'mkp' },
+      btn(pr.name, () => { Object.assign(m, pr.m, { on: true }); c(); redraw(); }, 'sm'),
+      btn('✕', async () => { if (await confirmBox('Apagar o marcador "' + pr.name + '"?', 'Apagar')) { presets.splice(i, 1); saveMk(presets); redraw(); } }, 'sm'))))) : null,
+    section('Elemento', chips(MARKERS, m.type, async v => {
+      if (v === 'image' && !m.mid) { const mid = await app.importImageForItem(); if (!mid) return; m.mid = mid; }
+      m.type = v; c(); redraw();
+    })),
+    m.type === 'image' ? btn('Trocar imagem', async () => { const mid = await app.importImageForItem(); if (mid) { m.mid = mid; c(); } }) : null,
+    m.type === 'number' ? h('div', {}, h('div', { class: 'sec-t' }, 'Texto dentro'), textInput(m.text, v => { m.text = v; l(); }, { onCommit: c })) : null,
+    section('Cor', swatches(m.color, v => { m.color = v; c(); })),
+    section('Posição', chips(MARKER_POS, m.pos, v => { m.pos = v; c(); })),
+    slider('Tamanho', 0.4, 3, 0.05, m.size, v => { m.size = v; l(); }, pct, c),
+    slider('Ajuste horizontal', -1.5, 1.5, 0.02, m.dx, v => { m.dx = v; l(); }, v => v.toFixed(2), c),
+    slider('Ajuste vertical', -1.5, 1.5, 0.02, m.dy, v => { m.dy = v; l(); }, v => v.toFixed(2), c),
+    slider('Rotação', -180, 180, 1, m.rot, v => { m.rot = v; l(); }, v => v + '°', c),
+    slider('Altura do pulo', 0, 2, 0.05, m.arc, v => { m.arc = v; l(); }, v => v.toFixed(2), c),
+    slider('Duração do pulo', 0.06, 0.5, 0.01, m.dur, v => { m.dur = v; l(); }, v => v.toFixed(2) + ' s', c),
+    toggle('Pulsar parado na palavra', m.pulse, v => { m.pulse = v; c(); }),
+    toggle('Girar', m.spin, v => { m.spin = v; c(); }),
+    toggle('Rastro no pulo', m.trail, v => { m.trail = v; c(); }),
+    toggle('Amassar ao cair', m.squash, v => { m.squash = v; c(); }),
+    section('Nas palavras fortes, trocar por', chips([{ id: '', name: 'O mesmo' }, ...MARKERS.filter(x => x.id !== 'image')], m.strongType || '', v => { m.strongType = v; c(); redraw(); })),
+    m.strongType ? section('Cor nas palavras fortes', swatches(m.strongColor, v => { m.strongColor = v; c(); })) : null,
+    btn('Salvar este marcador', async () => {
+      const name = await promptBox('Nome do marcador:', MARKERS.find(x => x.id === m.type)?.name || 'Meu marcador');
+      if (!name) return;
+      const a = loadMk(); a.unshift({ name, m: { ...m, on: true } }); saveMk(a.slice(0, 20)); toast('Marcador salvo'); redraw();
+    }),
+  );
+  return section('Marcador', box);
 }
 
 // edição linha a linha
@@ -475,12 +713,27 @@ export function captionsEditor(app) {
       });
       return b;
     }));
-    row.append(h('div', { class: 'cetop' }, time, inp), words);
+    const add = btn('＋ cartela', () => pickCartela(app, pg), 'sm');
+    row.append(h('div', { class: 'cetop' }, time, inp, add), words);
     list.append(row);
   }
   app.openSheet('Corrigir legenda', h('div', {},
     h('p', { class: 'hint' }, 'Corrija o texto de cada trecho (o tempo é ajustado sozinho). Toque numa palavra para deixá-la na cor forte. Toque no horário para ver o trecho.'),
     list), { back: () => captionsPanel(app) });
+}
+
+function pickCartela(app, pg) {
+  const list = ELEMENTS.filter(e => e.group === 'Cartelas' || e.group === 'Gráficos');
+  const grid = h('div', { class: 'grid' }, list.map(e => {
+    const b = h('button', { class: 'gi', type: 'button' }, h('span', { class: 'gi-i' }, e.group === 'Cartelas' ? '▤' : '▥'), e.name);
+    b.addEventListener('click', () => {
+      const dur = Math.max(2, Math.min(6, pg.end - pg.start + 0.4));
+      const it = app.addItem(e.kind, JSON.parse(JSON.stringify(e.p)), pg.start, dur);
+      itemPanel(app, it);
+    });
+    return b;
+  }));
+  app.openSheet('Cartela neste trecho', h('div', {}, h('p', { class: 'hint' }, 'A cartela entra no começo deste trecho da fala e dura enquanto ele é falado. Depois ajuste o texto.'), grid), { back: () => captionsEditor(app) });
 }
 
 // ------------------------------------------------------------------ formato
@@ -496,18 +749,104 @@ export function formatPanel(app) {
 
 // ------------------------------------------------------------------ exportar
 export function exportPanel(app) {
-  let q = QUALITIES[1];
-  const L = layout(app.project);
+  const p = app.project;
+  const L = layout(p);
+  let pick = null;
+  try { pick = localStorage.getItem('ed.exportPreset'); } catch (e) { }
+  pick = pick || 'reels';
+  const info = h('p', { class: 'hint' });
+  const settings = () => {
+    const pl = PLATFORMS.find(x => x.id === pick);
+    if (pl) return { ...platformSettings(pl, L.total), name: pl.name };
+    const q = QUALITIES.find(x => x.id === pick) || QUALITIES[1];
+    return { bitrate: q.bitrate, scale: 1, abitrate: 192e3, name: q.name };
+  };
+  const showInfo = () => {
+    const st = settings(), pl = PLATFORMS.find(x => x.id === pick);
+    const mb = (st.bitrate + st.abitrate) * L.total / 8e6;
+    const warn = [];
+    if (pick === 'youtube' && p.format !== '16:9') warn.push('Seu vídeo está em ' + p.format + '. Para YouTube deitado, mude o formato para 16:9.');
+    if ((pick === 'reels' || pick === 'tiktok' || pick === 'shorts' || pick === 'status') && p.format === '16:9') warn.push('Seu vídeo está deitado (16:9). Para ' + (pl ? pl.name : '') + ' o melhor é 9:16.');
+    if (pick === 'status' && L.total > 60) warn.push('O status do WhatsApp corta em 60 s.');
+    if ((pick === 'reels' || pick === 'shorts') && L.total > 180) warn.push('Passa de 3 min.');
+    info.textContent = `${pl ? pl.note + ' ' : ''}Arquivo de cerca de ${mb.toFixed(0)} MB${st.scale < 1 ? ' em 720p' : ''}.${warn.length ? ' Atenção: ' + warn.join(' ') : ''}`;
+  };
+  const pc = chips(PLATFORMS.map(x => ({ id: x.id, name: x.name })), pick, id => { pick = id; try { localStorage.setItem('ed.exportPreset', id); } catch (e) { } showInfo(); qc.set(null); });
+  const qc = chips(QUALITIES, pick, id => { pick = id; showInfo(); pc.set(null); });
   const body = h('div', {},
-    h('p', {}, `Duração: ${fmtTime(L.total)} · ${app.project.format} · ${app.project.fps} quadros por segundo`),
-    section('Qualidade', chips(QUALITIES, q.id, (id, o) => { q = o; })),
+    h('p', {}, `Duração: ${fmtTime(L.total)} · ${p.format} · ${p.fps} quadros por segundo`),
+    section('Para onde vai o vídeo', pc),
+    section('Ou escolha a qualidade', qc),
+    info,
     h('p', { class: 'hint' }, 'A exportação acontece no próprio celular. Deixe o app aberto e a tela ligada até terminar.'),
-    btn('Exportar vídeo', () => { app.closeSheet(); app.runExport(q); }, 'pri big'));
+    btn('Exportar vídeo', () => { app.closeSheet(); app.runExport(settings()); }, 'pri big'),
+    section('Legenda e textos',
+      h('div', { class: 'brow' },
+        btn('Baixar legenda .srt', () => {
+          const srt = toSRT(p);
+          if (!srt.trim()) { toast('Gere a legenda primeiro (menu Legendas)'); return; }
+          app.saveText(srt, (p.name || 'legenda').replace(/[^\w\-À-ú ]+/g, '').trim().replace(/\s+/g, '-').slice(0, 40) + '.srt');
+        }),
+        btn('Textos para postar', () => postTextsPanel(app)))),
+  );
+  showInfo();
   app.openSheet('Exportar', body);
+}
+
+// descrição de Instagram, WhatsApp e comentário fixado (modelo editável, sem travessão)
+export function postTextsPanel(app) {
+  const p = app.project;
+  const d = p.post = p.post || { hook: '', facts: '', phrase: '', word: '', sources: '', tags: '' };
+  if (!d.hook) d.hook = (p.name || '').toUpperCase();
+  const outs = h('div');
+  const nodash = x => String(x || '').replace(/\s*[—–]\s*/g, ', ');
+  const lines = x => nodash(x).split('\n').map(l => l.trim()).filter(Boolean);
+  const tagify = x => String(x || '').split(/[\s,]+/).filter(Boolean).map(t => t.startsWith('#') ? t : '#' + t);
+  const gen = () => {
+    const facts = lines(d.facts), src = lines(d.sources), tags = tagify(d.tags);
+    const word = (d.word || 'EU QUERO').toUpperCase();
+    const insta = [
+      '🔥 ' + nodash(d.hook),
+      '',
+      ...facts,
+      d.phrase ? '' : null, d.phrase ? nodash(d.phrase) : null,
+      '',
+      `👇 Comenta: ${word}`,
+      src.length ? '' : null, ...(src.length ? ['Fontes: ' + src.join('; ')] : []),
+      tags.length ? '' : null, tags.length ? tags.slice(0, 8).join(' ') : null,
+    ].filter(x => x !== null).join('\n');
+    const whats = [
+      '📢 *' + nodash(d.hook) + '*',
+      ...facts.slice(0, 4),
+      d.phrase ? '*' + nodash(d.phrase) + '*' : null,
+      '',
+      'Assiste e compartilha 👇',
+    ].filter(x => x !== null).join('\n');
+    const pin = `Companheiros, se você também acha isso, comenta ${word} e segue o perfil. Manda esse vídeo para 3 pessoas hoje.`;
+    outs.innerHTML = '';
+    for (const [t, txt] of [['Instagram', insta], ['WhatsApp', whats], ['Comentário fixado', pin]]) {
+      const ta = h('textarea', { class: 'ti', rows: Math.min(12, txt.split('\n').length + 1) }); ta.value = txt;
+      outs.append(section(t, ta, btn('Copiar', async () => {
+        try { await navigator.clipboard.writeText(ta.value); toast('Copiado'); } catch (e) { ta.select(); document.execCommand('copy'); toast('Copiado'); }
+      }, 'sm')));
+    }
+  };
+  const f = (label, key, multi, ph) => h('div', {}, h('div', { class: 'sec-t' }, label), textInput(d[key], v => { d[key] = v; }, { multiline: multi, placeholder: ph, onCommit: () => { app.commit(); gen(); } }));
+  app.openSheet('Textos para postar', h('div', {},
+    h('p', { class: 'hint' }, 'Preencha e o app monta a descrição do Instagram, do WhatsApp e o comentário fixado. Dá para editar antes de copiar. Números e acusações sempre com fonte e data.'),
+    f('Gancho (primeira linha)', 'hook', false, 'ELE FALOU ISSO NA CARA DE TODO MUNDO'),
+    f('Fatos (um por linha)', 'facts', true, 'Em 2014 o Brasil saiu do Mapa da Fome'),
+    f('Frase de efeito', 'phrase', false, 'Não podemos esquecer nossa história'),
+    f('Palavra para comentar', 'word', false, 'LULA'),
+    f('Fontes com data (uma por linha)', 'sources', true, 'ONU/FAO, julho de 2025'),
+    f('Hashtags', 'tags', false, '#SegundoTurno #Eleições2026 #25DeOutubro'),
+    outs), { back: () => exportPanel(app) });
+  gen();
 }
 
 // ------------------------------------------------------------------ modelos
 import { TEMPLATES, applyTemplate } from './templates.js';
+import { listUserTemplates, captureTemplate, saveUserTemplate, renameUserTemplate, deleteUserTemplate, duplicateUserTemplate, toTemplate } from './usertpl.js';
 import { Renderer } from './render.js';
 import { newProject, newClip, dims as dimsOf } from './project.js';
 
@@ -530,7 +869,7 @@ async function stillOf(app) {
   } catch (e) { return null; }
 }
 
-async function renderTemplatePreview(tpl, still, opt) {
+async function renderTemplatePreview(tpl, still, opt, app) {
   const p = newProject('prévia');
   const w = still ? still.width : 720, h = still ? still.height : 1280;
   p.media.still = { id: 'still', kind: 'image', dur: 4, w, h, hasAudio: false };
@@ -542,6 +881,10 @@ async function renderTemplatePreview(tpl, still, opt) {
   const [W, H] = dimsOf(p);
   const k = 200 / Math.max(W, H);
   if (!tplRenderer) { const c = document.createElement('canvas'); tplRenderer = new Renderer(c); }
+  for (const [mid, m] of Object.entries(tpl.media || {})) {
+    if (m.kind !== 'image' || tplRenderer.images.has(mid)) continue;
+    try { tplRenderer.images.set(mid, app.renderer.images.get(mid) || await createImageBitmap(await app.getBlob(mid))); } catch (e) { }
+  }
   tplRenderer.setSize(Math.round(W * k), Math.round(H * k));
   const fallback = document.createElement('canvas'); fallback.width = 9; fallback.height = 16;
   const fx = fallback.getContext('2d'); const g = fx.createLinearGradient(0, 0, 9, 16); g.addColorStop(0, '#334155'); g.addColorStop(1, '#0f766e'); fx.fillStyle = g; fx.fillRect(0, 0, 9, 16);
@@ -572,6 +915,7 @@ export function templatesPanel(app, afterImport = false) {
     try {
       try { localStorage.setItem('ed.tpl', JSON.stringify({ handle: opt.handle })); } catch (e) { }
       applyTemplate(p, t, opt);
+      if (t.media && app.loadItemImage) for (const [mid, m] of Object.entries(t.media)) if (m.kind === 'image') app.loadItemImage(mid).then(() => app.requestRender());
       app.applyFormat();
       app.commit();
       app.setTime(Math.min(1.5, layout(p).total / 3));
@@ -584,15 +928,50 @@ export function templatesPanel(app, afterImport = false) {
       toast('Não consegui aplicar o modelo: ' + e.message, 6000);
     }
   };
-  for (const t of TEMPLATES) {
+  const makeCard = (t, extra) => {
     const thumb = h('div', { class: 'tthumb', style: { background: `linear-gradient(135deg, ${t.colors[0]}, ${t.colors[1]})`, aspectRatio: t.format.replace(':', '/') } });
-    const card = h('button', { class: 'tcard' + (chosen === t.id ? ' on' : ''), type: 'button' }, thumb, h('b', {}, t.name), h('span', {}, t.desc));
-    card.addEventListener('click', () => apply(t));
+    const card = h('div', { class: 'tcard' + (p.template === t.id ? ' on' : ''), role: 'button', tabindex: 0 }, thumb, h('b', {}, t.name), h('span', {}, t.desc), extra || null);
+    card.addEventListener('click', e => { if (e.target.closest('.tact')) return; apply(t); });
     cards.set(t.id, card);
-    grid.append(card);
-  }
+    return card;
+  };
+  // meus modelos
+  const mine = h('div', {});
+  const userList = () => listUserTemplates().map(toTemplate);
+  const drawMine = () => {
+    mine.innerHTML = '';
+    const list = listUserTemplates();
+    const g = h('div', { class: 'tgrid' });
+    for (const u of list) {
+      const t = toTemplate(u);
+      const acts = h('div', { class: 'tact' },
+        btn('✎', async () => { const n = await promptBox('Novo nome do modelo:', u.name); if (n && n.trim()) { renameUserTemplate(u.id, n.trim()); drawMine(); previews(userList()); } }, 'sm'),
+        btn('⟳', async () => {
+          if (!(await confirmBox(`Trocar o modelo "${u.name}" pelo jeito que este vídeo está agora?`, 'Atualizar'))) return;
+          saveUserTemplate(captureTemplate(p, u.name, u.id)); p.template = u.id; app.commit(); toast('Modelo atualizado'); drawMine(); previews(userList());
+        }, 'sm'),
+        btn('⧉', () => { duplicateUserTemplate(u.id); drawMine(); previews(userList()); }, 'sm'),
+        btn('🗑', async () => { if (await confirmBox(`Apagar o modelo "${u.name}"?`, 'Apagar')) { deleteUserTemplate(u.id); drawMine(); } }, 'sm danger'));
+      g.append(makeCard(t, acts));
+    }
+    mine.append(
+      section('Meus modelos',
+        h('p', { class: 'hint' }, list.length
+          ? 'Toque para aplicar. ✎ renomear · ⟳ atualizar com este vídeo · ⧉ duplicar · 🗑 apagar. Para editar um modelo: aplique, mude o que quiser no vídeo e toque em ⟳.'
+          : 'Deixe um vídeo do seu jeito (legenda, cores, marcador, transições, elementos, cartelas, áudio) e salve como modelo para usar nos próximos.'),
+        btn('＋ Salvar este vídeo como meu modelo', async () => {
+          const n = await promptBox('Nome do modelo:', p.name || 'Meu modelo');
+          if (!n || !n.trim()) return;
+          const u = captureTemplate(p, n.trim());
+          if (!saveUserTemplate(u)) { toast('Não consegui salvar o modelo (memória cheia?)', 5000); return; }
+          p.template = u.id; app.commit(); toast('Modelo salvo em Meus modelos'); drawMine(); previews([toTemplate(u)]);
+        }, 'pri'),
+        list.length ? g : null));
+  };
+  drawMine();
+  for (const t of TEMPLATES) grid.append(makeCard(t));
   // mudar título/@/opções reaplica o modelo escolhido
-  const reapply = () => { const t = TEMPLATES.find(x => x.id === chosen); if (t) apply(t); };
+  const reapply = () => { const t = TEMPLATES.find(x => x.id === chosen) || userList().find(x => x.id === chosen); if (t) apply(t); };
   const body = h('div', {},
     h('p', { class: 'hint' }, afterImport ? 'Toque num modelo para aplicar na hora. Dá para trocar quantas vezes quiser, ou tocar em OK para editar do zero.' : 'Toque num modelo para aplicar na hora. Os textos e elementos do modelo anterior são trocados; o que você colocou continua.'),
     h('div', { class: 'nrow' },
@@ -602,18 +981,24 @@ export function templatesPanel(app, afterImport = false) {
       toggle('Abertura e final', true, v => { opt.intro = v; opt.outro = v; reapply(); }),
       toggle('Transições', true, v => { opt.trans = v; reapply(); }),
       toggle('Batida / trilha', true, v => { opt.music = v; reapply(); })),
-    status, grid);
+    status, mine, section('Modelos prontos', grid));
   app.openSheet('Modelos', body);
   // prévias com um quadro do próprio vídeo
-  (async () => {
-    const still = await stillOf(app);
-    for (const t of TEMPLATES) {
-      if (!document.body.contains(grid)) return;
-      try {
-        const c = await renderTemplatePreview(t, still, opt);
-        const th = cards.get(t.id).querySelector('.tthumb');
-        th.style.background = '#000'; th.innerHTML = ''; th.append(c);
-      } catch (e) { console.warn('prévia do modelo', t.id, e); }
-    }
-  })();
+  let stillP = null, queue = Promise.resolve();
+  const previews = list => {
+    queue = queue.then(async () => {
+      if (!stillP) stillP = stillOf(app);
+      const still = await stillP;
+      for (const t of list) {
+        if (!document.body.contains(grid)) return;
+        try {
+          const c = await renderTemplatePreview(t, still, opt, app);
+          const th = cards.get(t.id)?.querySelector('.tthumb');
+          if (!th) continue;
+          th.style.background = '#000'; th.innerHTML = ''; th.append(c);
+        } catch (e) { console.warn('prévia do modelo', t.id, e); }
+      }
+    });
+  };
+  previews([...userList(), ...TEMPLATES]);
 }

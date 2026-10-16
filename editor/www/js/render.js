@@ -65,7 +65,7 @@ export class Renderer {
       const fx = FX_BY_ID[f.id];
       if (!fx || fx.timeRemap) continue;
       const tgt = eng.fbo(slot + 'x' + (k++ % 2));
-      cur = eng.effect(fx.id, cur, local, t, f.i ?? fx.def.i, [f.bpm || 126, 0, 0, 0], eng.fbo('prev'), tgt);
+      cur = eng.effect(fx.id, cur, local, t, f.i ?? fx.def.i, fx.params ? fx.params(f) : [f.bpm || 126, 0, 0, 0], eng.fbo('prev'), tgt);
     }
     return cur;
   }
@@ -95,7 +95,7 @@ export class Renderer {
       if (!fx || fx.id === 'stutter') continue;
       if (fx.usesPrev) usedPrev = true;
       const tgt = eng.fbo('P' + (k++ % 2));
-      cur = eng.effect(fx.id, cur, (t - it.start) / it.dur, t, it.p.i ?? fx.def.i, [it.p.bpm || 126, 0, 0, 0], eng.fbo('prev'), tgt);
+      cur = eng.effect(fx.id, cur, (t - it.start) / it.dur, t, it.p.i ?? fx.def.i, fx.params ? fx.params(it.p) : [it.p.bpm || 126, 0, 0, 0], eng.fbo('prev'), tgt);
     }
     eng.copy(cur, null);
     if (usedPrev || opt.keepPrev) eng.copy(cur, eng.fbo('prev'));
@@ -109,7 +109,7 @@ export class Renderer {
     };
     const items = drawItems(ctx, p, t, W, H, env);
     const pages = this.captionsFor(p, opt.capVersion ?? -2);
-    const capBox = drawCaptions(ctx, p, pages, t, W, H);
+    const capBox = drawCaptions(ctx, p, pages, t, W, H, env);
     this.lastBoxes = { captions: capBox, items };
     return this.lastBoxes;
   }

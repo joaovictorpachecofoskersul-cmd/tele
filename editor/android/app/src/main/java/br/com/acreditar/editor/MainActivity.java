@@ -213,6 +213,8 @@ public class MainActivity extends Activity {
     }
 
     private Uri saveToGallery(File src, String name, String mime) throws Exception {
+        lastMime = mime;
+        if (!mime.startsWith("video/")) return saveToDownloads(src, name, mime);
         if (Build.VERSION.SDK_INT >= 29) {
             ContentValues cv = new ContentValues();
             cv.put(MediaStore.Video.Media.DISPLAY_NAME, name);
@@ -246,6 +248,34 @@ public class MainActivity extends Activity {
             synchronized (lock) { if (got[0] == null) lock.wait(5000); }
             return got[0] != null ? got[0] : Uri.fromFile(dst);
         }
+    }
+
+    private String lastMime = "video/mp4";
+
+    // legendas (.srt), textos: vão para Downloads/Editor
+    private Uri saveToDownloads(File src, String name, String mime) throws Exception {
+        if (Build.VERSION.SDK_INT >= 29) {
+            ContentValues cv = new ContentValues();
+            cv.put(MediaStore.Downloads.DISPLAY_NAME, name);
+            cv.put(MediaStore.Downloads.MIME_TYPE, mime);
+            cv.put(MediaStore.Downloads.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS + "/Editor");
+            Uri uri = getContentResolver().insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, cv);
+            if (uri == null) throw new Exception("não foi possível criar o arquivo");
+            try (InputStream in = new FileInputStream(src); OutputStream out = getContentResolver().openOutputStream(uri)) {
+                if (out == null) throw new Exception("não foi possível gravar");
+                byte[] buf = new byte[64 * 1024]; int n;
+                while ((n = in.read(buf)) > 0) out.write(buf, 0, n);
+            }
+            return uri;
+        }
+        File dir = new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), "Editor");
+        if (!dir.exists() && !dir.mkdirs()) throw new Exception("sem permissão para criar a pasta");
+        File dst = new File(dir, name);
+        try (InputStream in = new FileInputStream(src); OutputStream out = new FileOutputStream(dst)) {
+            byte[] buf = new byte[64 * 1024]; int n;
+            while ((n = in.read(buf)) > 0) out.write(buf, 0, n);
+        }
+        return Uri.fromFile(dst);
     }
 
     public class Bridge {
@@ -299,7 +329,7 @@ public class MainActivity extends Activity {
             if (u == null) return;
             runOnUiThread(() -> {
                 Intent i = new Intent(Intent.ACTION_SEND);
-                i.setType("video/*");
+                i.setType(lastMime != null && lastMime.startsWith("video/") ? "video/*" : lastMime);
                 i.putExtra(Intent.EXTRA_STREAM, u);
                 i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
                 startActivity(Intent.createChooser(i, "Enviar vídeo"));
