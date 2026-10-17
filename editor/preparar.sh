@@ -13,7 +13,8 @@ for f in poppins/files/poppins-latin-400-normal poppins/files/poppins-latin-600-
          poppins/files/poppins-latin-800-normal poppins/files/poppins-latin-900-normal poppins/files/poppins-latin-ext-700-normal \
          poppins/files/poppins-latin-ext-900-normal anton/files/anton-latin-400-normal bebas-neue/files/bebas-neue-latin-400-normal \
          permanent-marker/files/permanent-marker-latin-400-normal montserrat/files/montserrat-latin-900-normal \
-         courier-prime/files/courier-prime-latin-700-normal; do
+         courier-prime/files/courier-prime-latin-700-normal bangers/files/bangers-latin-400-normal \
+         pacifico/files/pacifico-latin-400-normal oswald/files/oswald-latin-700-normal lilita-one/files/lilita-one-latin-400-normal; do
   cp "$NM/@fontsource/$f.woff2" www/fonts/
 done
 # recorte de pessoa e detector de rosto (MediaPipe, Apache 2.0), funcionam sem internet

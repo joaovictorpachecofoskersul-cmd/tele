@@ -6,7 +6,8 @@ import { CAPTION_STYLES, toSRT } from './captions.js';
 import { ASR_MODELS } from './asr.js';
 import { LANGS as TR_LANGS } from './translate.js';
 import { FONT_CHOICES } from './fonts.js';
-import { SFX_LIST, BEAT_STYLES, ELEMENT_SFX } from './audio.js';
+import { SFX_LIST, SFX_GROUPS, BEAT_STYLES, ELEMENT_SFX } from './audio.js';
+import { VOICE_FX } from './denoise.js';
 import { QUALITIES, PLATFORMS, platformSettings } from './export.js';
 import { BG_CHOICES } from './cartelas.js';
 import { EASES, ITEM_PRESETS, CLIP_PRESETS, interp, upsertKf, kfAt, itemBase, clipBase } from './kf.js';
@@ -223,18 +224,18 @@ const GROUP_OF = {
 const RED = '#EB1E28', YEL = '#FFDE00';
 // kits prontos com as identidades (estilos)
 const KITS = [
-  { kit: 'Brasileirando', kind: 'r_headline', name: 'Manchete com local e data', p: { tag: 'CUIABÁ · 2026', l1: 'ELE FALOU ISSO NA', l2: 'CARA DE TODO MUNDO', tagColor: RED, color2: YEL, alpha: .8, x: .5, y: .07 } },
-  { kit: 'Brasileirando', kind: 'r_cta', name: 'SEGUE O PERFIL', p: { text: 'SEGUE O PERFIL', sub: 'E ASSISTE ATÉ O FIM', color: RED, x: .5, y: .84 } },
-  { kit: 'Brasileirando', kind: 'r_blink', name: 'ESPERA O FINAL', p: { text: 'ESPERA O FINAL', size: .045, hz: 3, color: '#FFFFFF', bg: RED, x: .5, y: .24 } },
-  { kit: 'Brasileirando', kind: 'r_nametag', name: 'Nome de político', p: { name: 'NOME DO POLÍTICO', dir: 'baixo', bg: YEL, color: '#111111', x: .5, y: .3 } },
-  { kit: 'Brasileirando', kind: 'c_final', name: 'Card DIA 25 É LULA 13', p: { bg: 'escuro', fonte: '', speed: 1, l1: 'DIA 25 É', l2: 'LULA 13', cta1: 'COMENTA O QUE ACHOU', cta2: 'SEGUE O PERFIL', pillColor: RED } },
-  { kit: 'BORA LULA', kind: 'pill', name: 'Cabeçalho BORA LULA', p: { text: 'BORA LULA', bg: RED, color: '#FFFFFF', x: .5, y: .06, size: .045 } },
-  { kit: 'BORA LULA', kind: 'stamp', name: 'Carimbo VOTA 13', p: { text: 'VOTA 13', color: RED, x: .5, y: .45, size: .14, rot: -10 } },
-  { kit: 'BORA LULA', kind: 'card', name: 'Card LULA 13', p: { title: 'LULA 13', sub: '25 DE OUTUBRO · VOTE 13', bg: RED, bg2: '#7F0A10', color: '#FFFFFF', confetti: true, comment: 'COMENTA: 13' } },
-  { kit: 'Minicurso', kind: 'module', name: 'Card de módulo', p: { num: 'MÓDULO 1', title: 'Título da aula', bg: '#173B32', accent: '#F0B429' } },
-  { kit: 'Minicurso', kind: 'pill', name: 'Etiqueta de aula', p: { text: 'AULA 1 DE 5', bg: '#F0B429', color: '#173B32', x: .5, y: .1, size: .045 } },
-  { kit: 'Minicurso', kind: 'checklist', name: 'Lista da aula', p: { text: 'Primeiro ponto\nSegundo ponto\nTerceiro ponto', x: .5, y: .45, size: .055, color: '#FFFFFF', check: '#F0B429', box: 'rgba(23,59,50,.85)' } },
-  { kit: 'Minicurso', kind: 'lower', name: 'Nome do professor', p: { name: 'NOME', role: 'Professor(a)', color: '#F0B429', x: .05, y: .74 } },
+  { kit: 'Notícia viral', kind: 'r_headline', name: 'Manchete com local e data', p: { tag: 'CUIABÁ · 2026', l1: 'ELE FALOU ISSO NA', l2: 'CARA DE TODO MUNDO', tagColor: RED, color2: YEL, alpha: .8, x: .5, y: .07 } },
+  { kit: 'Notícia viral', kind: 'r_cta', name: 'SEGUE O PERFIL', p: { text: 'SEGUE O PERFIL', sub: 'E ASSISTE ATÉ O FIM', color: RED, x: .5, y: .84 } },
+  { kit: 'Notícia viral', kind: 'r_blink', name: 'ESPERA O FINAL', p: { text: 'ESPERA O FINAL', size: .045, hz: 3, color: '#FFFFFF', bg: RED, x: .5, y: .24 } },
+  { kit: 'Notícia viral', kind: 'r_nametag', name: 'Nome de pessoa', p: { name: 'NOME DA PESSOA', dir: 'baixo', bg: YEL, color: '#111111', x: .5, y: .3 } },
+  { kit: 'Notícia viral', kind: 'c_final', name: 'Card final com chamada', p: { bg: 'escuro', fonte: '', speed: 1, l1: 'SUA FRASE', l2: 'FORTE AQUI', cta1: 'COMENTA O QUE ACHOU', cta2: 'SEGUE O PERFIL', pillColor: RED } },
+  { kit: 'Campanha', kind: 'pill', name: 'Cabeçalho', p: { text: 'SEU TEMA', bg: RED, color: '#FFFFFF', x: .5, y: .06, size: .045 } },
+  { kit: 'Campanha', kind: 'stamp', name: 'Carimbo', p: { text: 'APROVADO', color: RED, x: .5, y: .45, size: .14, rot: -10 } },
+  { kit: 'Campanha', kind: 'card', name: 'Card de encerramento', p: { title: 'SUA MENSAGEM', sub: 'DATA · LOCAL', bg: RED, bg2: '#7F0A10', color: '#FFFFFF', confetti: true, comment: 'COMENTA AQUI' } },
+  { kit: 'Aula', kind: 'module', name: 'Card de módulo', p: { num: 'MÓDULO 1', title: 'Título da aula', bg: '#173B32', accent: '#F0B429' } },
+  { kit: 'Aula', kind: 'pill', name: 'Etiqueta de aula', p: { text: 'AULA 1 DE 5', bg: '#F0B429', color: '#173B32', x: .5, y: .1, size: .045 } },
+  { kit: 'Aula', kind: 'checklist', name: 'Lista da aula', p: { text: 'Primeiro ponto\nSegundo ponto\nTerceiro ponto', x: .5, y: .45, size: .055, color: '#FFFFFF', check: '#F0B429', box: 'rgba(23,59,50,.85)' } },
+  { kit: 'Aula', kind: 'lower', name: 'Nome do professor', p: { name: 'NOME', role: 'Professor(a)', color: '#F0B429', x: .05, y: .74 } },
 ];
 const groupOf = e => e.kit ? 'Kits' : e.group || GROUP_OF[e.kind] || 'Destaques';
 const keyOf = e => e.kind + '|' + e.name;
@@ -328,7 +329,7 @@ export function elementsPanel(app, startTab) {
     }
     const items = list();
     hint.textContent = !items.length ? (tab === 'Recentes' ? 'Os elementos que você usar aparecem aqui.' : tab === 'Meus' ? 'Edite um elemento do seu jeito e toque em "Salvar" (estrela) na barra de baixo para guardar aqui.' : 'Nada encontrado.')
-      : tab === 'Kits' && !q ? 'Kits prontos com as cores de cada estilo: Brasileirando, BORA LULA e Minicurso.' : 'O elemento entra no cursor. Depois arraste na prévia e ajuste a duração na linha do tempo.';
+      : tab === 'Kits' && !q ? 'Kits prontos com as cores de cada estilo: notícia viral, campanha e aula.' : 'O elemento entra no cursor. Depois arraste na prévia e ajuste a duração na linha do tempo.';
     grid.innerHTML = '';
     let lastKit = null;
     items.forEach((e, i) => {
@@ -370,14 +371,18 @@ const LBL = {
   na: 'Nome A', nb: 'Nome B', pa: '% de A', pb: '% de B', ca: 'Cor A', cb: 'Cor B', margin: 'Margem de erro', ta: 'Título da esquerda', tb: 'Título da direita',
   left: 'Esquerda (+ a favor, - contra)', right: 'Direita (+ a favor, - contra)', bottom: 'Linha de baixo', fonte: 'Fonte (aparece no rodapé)',
   tag: 'Etiqueta', tagColor: 'Cor da etiqueta', alpha: 'Fundo escuro', name: 'Nome', hz: 'Piscadas por segundo', size: 'Tamanho', inset: 'Margem',
+  wait: 'Tempo digitando (s)', done: 'Texto depois do clique', stars: 'Estrelas (0 a 5)', w: 'Largura', side: 'Lado', mode: 'Tipo',
   speed: 'Velocidade da animação', donut: 'Rosca (furo no meio)', bg: 'Fundo',
+  prefix: 'Antes do número', dec: 'Casas decimais', goodUp: 'Subir é bom (verde)', count: 'Número', price: 'Preço', old: 'Preço antigo', stars: 'Estrelas (0 a 5)',
 };
 const MULTI = new Set(['items', 'data', 'left', 'right', 'text']);
 const LBL_RACE = { data: 'Tabela (1ª linha: Ano, nomes; depois um ano por linha)', top: 'Quantas barras aparecem', colors: 'Cores (opcional: #EB1E28, #FFDE00...)', suffix: 'Depois do número' };
 const CHOICE = {
   dir: [{ id: 'baixo', name: 'Seta embaixo' }, { id: 'cima', name: 'Seta em cima' }],
   mode: [{ id: 'pulsar', name: 'Pulsar' }, { id: 'piscar', name: 'Piscar' }],
+  side: [{ id: 'esquerda', name: 'Recebida (esquerda)' }, { id: 'direita', name: 'Enviada (direita)' }],
 };
+const CHOICE_KIND = { e_check: { mode: [{ id: 'certo', name: 'Certo ✓' }, { id: 'errado', name: 'Errado ✕' }] } };
 const RANGE = { top: [2, 12, 1, v => v], speed: [0.3, 3, 0.05, pct], alpha: [0, 1, 0.01, pct], size: [0.02, 0.15, 0.002, v => Math.round(v * 1000)], inset: [0, 0.1, 0.002, pct], hz: [0.5, 8, 0.5, v => v], t2: [0.5, 15, 0.1, sec], dur2: [0.5, 10, 0.1, sec] };
 const isColor = v => typeof v === 'string' && /^(#|rgba?\()/.test(v);
 
@@ -391,14 +396,14 @@ function genericFields(app, it, body, live, commit) {
     const v = q[k] ?? def[k], name = (it.kind === 'g_race' && LBL_RACE[k]) || LBL[k] || k;
     if (k === 'bg' && (it.kind.startsWith('c_') || it.kind.startsWith('g_'))) {
       body.append(section(name, chips(it.kind.startsWith('g_') ? [{ id: 'none', name: 'Sem fundo' }, ...BG_CHOICES] : BG_CHOICES, v, x => { q.bg = x; commit(); })));
-    } else if (CHOICE[k]) body.append(section(name, chips(CHOICE[k], v, x => { q[k] = x; commit(); })));
+    } else if ((CHOICE_KIND[it.kind] || {})[k] || CHOICE[k]) body.append(section(name, chips((CHOICE_KIND[it.kind] || {})[k] || CHOICE[k], v, x => { q[k] = x; commit(); })));
     else if (typeof v === 'boolean') body.append(toggle(name, v, x => { q[k] = x; commit(); }));
     else if (isColor(v)) body.append(section(name, swatches(v, x => { q[k] = x; commit(); })));
     else if (typeof v === 'number' && RANGE[k]) { const r = RANGE[k]; body.append(slider(name, r[0], r[1], r[2], v, x => { q[k] = x; live(); }, r[3], commit)); }
     else if (typeof v === 'number') body.append(h('div', { class: 'nrow' }, numInput(name, v, x => { q[k] = x; live(); }, commit)));
     else body.append(h('div', {}, h('div', { class: 'sec-t' }, name), textInput(v ?? '', x => { q[k] = x; live(); }, { multiline: MULTI.has(k), onCommit: commit })));
   }
-  if (!it.kind.startsWith('c_')) body.append(slider('Tamanho geral', 0.4, 2, 0.05, q.scale ?? 1, x => { q.scale = x; live(); }, pct, commit));
+  if (/^[gr]_/.test(it.kind)) body.append(slider('Tamanho geral', 0.4, 2, 0.05, q.scale ?? 1, x => { q.scale = x; live(); }, pct, commit));
   if (it.kind.startsWith('c_')) body.append(h('p', { class: 'hint' }, 'A cartela cobre a tela inteira. Use "Sobre o vídeo" no fundo para ver o vídeo por trás.'));
 }
 
@@ -699,7 +704,7 @@ export function itemPanel(app, it) {
       break;
     }
     default:
-      if (/^[cgr]_/.test(it.kind)) genericFields(app, it, body, live, commit);
+      if (/^[cgre]_/.test(it.kind)) genericFields(app, it, body, live, commit);
   }
   if (['pip', 'image', 'text', 'emoji', 'stamp', 'floaters', 'confetti', 'knockout'].includes(it.kind)) {
     body.append(section('Mesclagem', chips([{ id: 'normal', name: 'Normal' }, { id: 'screen', name: 'Clarear (tela)' }, { id: 'multiply', name: 'Escurecer (multiplicar)' },
@@ -748,11 +753,45 @@ export function effectsPanel(app) {
 }
 
 // ------------------------------------------------------------------ sons
-export function soundsPanel(app) {
-  const body = h('div', {}, h('p', { class: 'hint' }, 'Toque em ▶ para ouvir e em "+" para colocar no cursor.'),
-    h('div', { class: 'list' }, SFX_LIST.map(s => h('div', { class: 'lrow' },
-      btn('▶', () => app.preview.previewSfx(s.id), 'sm'), h('span', {}, s.name),
-      btn('+', () => { const it = app.addItem('sfx', { type: s.id, vol: 0.8 }, null, 0.5); toast(s.name + ' adicionado'); }, 'sm pri')))));
+export function soundsPanel(app, tab = 'efeitos') {
+  const a = app.project.audio;
+  const body = h('div');
+  const tabs = chips([{ id: 'efeitos', name: 'Efeitos sonoros' }, { id: 'voz', name: 'Voz e ruído' }, { id: 'musica', name: 'Música, batida e narração' }], tab, id => {
+    if (id === 'musica') { audioPanel(app); return; }
+    draw(id);
+  }, 'tabs');
+  const area = h('div');
+  body.append(tabs, area);
+  const draw = t => {
+    area.innerHTML = '';
+    if (t === 'efeitos') {
+      area.append(h('p', { class: 'hint' }, 'Toque no nome para ouvir e em "+" para colocar no cursor. Todos os sons são gerados no próprio app.'));
+      for (const g of SFX_GROUPS) {
+        area.append(section(g.name, h('div', { class: 'sfxgrid' }, g.ids.map(id => {
+          const sx = SFX_LIST.find(x => x.id === id); if (!sx) return null;
+          return h('div', { class: 'sfxi' },
+            h('button', { type: 'button', class: 'sfxp', onclick: () => app.preview.previewSfx(id) }, '▶ ' + sx.name),
+            h('button', { type: 'button', class: 'sfxa', onclick: () => { app.addItem('sfx', { type: id, vol: 0.8 }, null, 0.5); toast(sx.name + ' no cursor'); } }, '+'));
+        }))));
+      }
+    }
+    if (t === 'voz') {
+      area.append(
+        slider('Volume da voz (som dos vídeos)', 0, 2, 0.05, a.voice ?? 1, v => { a.voice = v; }, pct, () => app.commit()),
+        section('Limpar ruído',
+          slider('Redução de ruído', 0, 1, 0.05, a.denoise || 0, v => { a.denoise = v; }, v => v ? pct(v) : 'desligada', () => app.commit()),
+          h('p', { class: 'hint' }, 'Tira chiado, ventilador, ar-condicionado e vento leve.')),
+        section('Efeito na voz', chips(VOICE_FX, a.voiceFx || '', v => { a.voiceFx = v; app.commit(); })),
+        h('div', { class: 'brow' },
+          btn('▶ Ouvir 6 s com o tratamento', () => app.previewDenoise(a.denoise || 0, a.voiceFx || ''), 'pri'),
+          btn('〰 Cortar pausas', () => { app.closeSheet(); app.cutSilences(); })),
+        toggle('Volume padrão de rede social (-14 LUFS)', a.loud, v => { a.loud = v; app.commit(); }),
+        toggle('Abaixar a música quando alguém fala', a.duck, v => { a.duck = v; app.commit(); }),
+        h('p', { class: 'hint' }, 'O tratamento da voz vale na exportação. Para ouvir antes, ponha o cursor num trecho com fala e toque em Ouvir.'),
+      );
+    }
+  };
+  draw(tab === 'musica' ? 'efeitos' : tab);
   app.openSheet('Sons', body);
 }
 
@@ -813,9 +852,10 @@ export function captionsPanel(app) {
         h('p', {}, has ? 'Alguns vídeos ainda não têm legenda.' : 'Gere a legenda automática a partir da fala dos vídeos. Na primeira vez o app baixa o reconhecimento de voz (cerca de 100 MB no modo Rápido); depois funciona sem internet.'),
         h('div', { class: 'sec-t' }, 'Reconhecimento de voz'),
         chips(ASR_MODELS, (() => { try { return localStorage.getItem('ed.asr') || 'rapida'; } catch (e) { return 'rapida'; } })(), v => { try { localStorage.setItem('ed.asr', v); } catch (e) { } }),
-        h('p', { class: 'hint' }, 'A Rápida serve para a maioria dos vídeos e é a melhor para celular. A Precisa erra menos, mas demora bem mais. Depois você pode corrigir qualquer palavra.'),
-        btn('🎙 Gerar legenda automática', async () => { await app.transcribeAll(); captionsPanel(app); }, 'pri')) : null,
+        h('p', { class: 'hint' }, 'Relâmpago é a mais rápida (boa para fala clara). Rápida é o equilíbrio. Precisa erra menos, mas demora bem mais. O app só escuta os trechos que estão no vídeo e pula as pausas. Depois você pode corrigir qualquer palavra.'),
+        btn('🎙 Gerar legenda automática', () => { app.closeSheet(); app.transcribeAll(); toast('A legenda vai aparecendo enquanto o app escuta. Pode continuar editando.', 4000); }, 'pri')) : null,
       toggle('Mostrar legenda', cap.on, v => { cap.on = v; app.commit(); }),
+      btn('✨ Modelos de legenda', () => captionPresetsPanel(app), 'pri'),
       section('Estilo', chips(CAPTION_STYLES, cap.style, v => { cap.style = v; app.commit(true); })),
       slider('Palavras por vez', 1, 6, 1, cap.maxWords, v => { cap.maxWords = v; app.live(true); }, v => v, () => app.commit(true)),
       slider('Tamanho', 0.5, 1.8, 0.05, cap.size, v => { cap.size = v; app.live(); }, pct, () => app.commit()),
@@ -826,8 +866,8 @@ export function captionsPanel(app) {
       section('Fonte', chips(FONT_CHOICES.map(f => ({ id: f.id, name: f.name })), cap.font, v => { cap.font = v; app.commit(); })),
       toggle('MAIÚSCULAS', cap.upper, v => { cap.upper = v; app.commit(); }),
       section('Palavras fortes',
-        h('p', { class: 'hint' }, 'Escreva as palavras que devem ficar na cor forte em todo o vídeo, separadas por vírgula (ex.: Lula, 13, fome). Também dá para tocar nas palavras em "Corrigir texto".'),
-        textInput(cap.strongList || '', v => { cap.strongList = v; app.live(true); }, { onCommit: () => app.commit(true), placeholder: 'Lula, 13, fome' })),
+        h('p', { class: 'hint' }, 'Escreva as palavras que devem ficar na cor forte em todo o vídeo, separadas por vírgula (ex.: saúde, 100%, agora). Também dá para tocar nas palavras em "Corrigir texto".'),
+        textInput(cap.strongList || '', v => { cap.strongList = v; app.live(true); }, { onCommit: () => app.commit(true), placeholder: 'saúde, 100%, agora' })),
       markerSection(app, cap, draw),
       has ? section('Idioma da legenda',
         chips([{ id: '', name: 'Original' }, ...TR_LANGS.map(l => ({ id: l.id, name: l.name }))], cap.lang || '', async v => {
@@ -1009,6 +1049,84 @@ export function exportPanel(app) {
   app.openSheet('Exportar', body);
 }
 
+// ------------------------------------------------------------------ modelos de texto e de legenda
+export async function textPresetsPanel(app) {
+  const { TEXT_PRESETS } = await import('./presets.js');
+  const PV = await import('./previewer.js');
+  const grid = h('div', { class: 'ptgrid' });
+  for (const pr of TEXT_PRESETS) {
+    const cv = document.createElement('canvas'); cv.width = 2; cv.height = 2;
+    const c = h('button', { type: 'button', class: 'ptc' }, cv, h('span', {}, pr.name));
+    c.addEventListener('click', () => { const it = app.addTextPreset(pr); if (it) itemPanel(app, it); });
+    grid.append(c);
+    PV.renderStill(PV.fakeItemsProject(pr.items, app.project.format === '16:9' ? '16:9' : '9:16'), 2.2, 150, cv).catch(() => { });
+  }
+  app.openSheet('Modelos de texto', h('div', {}, h('p', { class: 'hint' }, 'Toque para colocar no cursor. Depois troque o texto, a cor e a animação.'), grid));
+}
+export async function captionPresetsPanel(app) {
+  const { CAPTION_PRESETS } = await import('./presets.js');
+  const PV = await import('./previewer.js');
+  const grid = h('div', { class: 'ptgrid' });
+  const cards = [];
+  for (const cp of CAPTION_PRESETS) {
+    const cv = document.createElement('canvas'); cv.width = 2; cv.height = 2;
+    const c = h('button', { type: 'button', class: 'ptc' }, cv, h('span', {}, cp.name));
+    c.addEventListener('click', () => { app.applyCaptionPreset(cp); cards.forEach(x => x.classList.toggle('on', x === c)); });
+    cards.push(c); grid.append(c);
+    PV.renderStill(PV.fakeItemsProject([], '9:16', cp.cap), 1.5, 150, cv).catch(() => { });
+  }
+  app.openSheet('Modelos de legenda', h('div', {},
+    h('p', { class: 'hint' }, 'Toque para trocar o visual da legenda inteira. Depois dá para ajustar cor, tamanho e marcador em Legendas.'),
+    grid,
+    btn('Ajustar a legenda', () => captionsPanel(app))), { back: () => captionsPanel(app) });
+}
+
+// ------------------------------------------------------------------ filtros (com prévia de cada um)
+let filterEng = null;
+export async function filtersPanel(app, clipArg) {
+  const { FILTERS, filterAdj } = await import('./filters.js');
+  const { Engine } = await import('./gl.js');
+  const p = app.project;
+  const L = layout(p);
+  const ci = Math.max(0, p.clips.indexOf(clipArg || app.selectedClip() || p.clips[Math.max(0, p.clips.findIndex((c, i) => app.time >= L.starts[i] && app.time < L.starts[i] + clipDur(c)))]));
+  const clip = p.clips[ci];
+  if (!clip) { toast('Coloque um vídeo primeiro'); return; }
+  let all = !clipArg && !app.selectedClip();
+  let k = clip.look ? (clip.lookK ?? 1) : 1;
+  // quadro atual sem filtro para as miniaturas
+  const snap = document.createElement('canvas');
+  const src = app.renderer.out;
+  const sw = 120, sh = Math.round(120 * src.height / src.width);
+  snap.width = sw; snap.height = sh; snap.getContext('2d').drawImage(src, 0, 0, sw, sh);
+  if (!filterEng) { const c = document.createElement('canvas'); c.width = sw; c.height = sh; filterEng = new Engine(c); }
+  filterEng.setSize(sw, sh);
+  const tex = filterEng.upload('fsrc', snap, sw, sh);
+  const grid = h('div', { class: 'fgrid' });
+  const cards = [];
+  for (const f of FILTERS) {
+    const out = document.createElement('canvas'); out.width = sw; out.height = sh;
+    filterEng.adjust(tex, filterAdj(f), null);
+    out.getContext('2d').drawImage(filterEng.canvas, 0, 0);
+    const card = h('button', { class: 'fit' + ((clip.look || 'natural') === f.id ? ' on' : ''), type: 'button' }, out, h('span', {}, f.name));
+    card.addEventListener('click', () => {
+      const targets = all ? p.clips : [clip];
+      for (const c of targets) { if (f.id === 'natural') { c.adj = {}; delete c.look; } else { c.adj = filterAdj(f, k); c.look = f.id; c.lookK = k; } }
+      cards.forEach(x => x.classList.toggle('on', x === card));
+      app.commit();
+    });
+    cards.push(card); grid.append(card);
+  }
+  app.openSheet('Filtros', h('div', {},
+    toggle('Aplicar em todos os clipes', all, v => { all = v; }),
+    slider('Força do filtro', 0, 1.5, 0.05, k, v => { k = v; }, pct, () => {
+      const f = FILTERS.find(x => x.id === clip.look); if (!f) return;
+      for (const c of (all ? p.clips : [clip])) if (c.look) { c.adj = filterAdj(FILTERS.find(x => x.id === c.look) || f, k); c.lookK = k; }
+      app.commit();
+    }),
+    grid,
+    h('div', { class: 'brow' }, btn('Ajustar brilho, contraste e cor', () => clipPanel(app, clip, 'cor')))));
+}
+
 // ------------------------------------------------------------------ YouTube e formatos
 export function platformPanel(app) {
   const p = app.project;
@@ -1146,7 +1264,7 @@ export function postTextsPanel(app) {
       '',
       'Assiste e compartilha 👇',
     ].filter(x => x !== null).join('\n');
-    const pin = `Companheiros, se você também acha isso, comenta ${word} e segue o perfil. Manda esse vídeo para 3 pessoas hoje.`;
+    const pin = `Se você também acha isso, comenta ${word} e segue o perfil. Manda esse vídeo para 3 pessoas hoje.`;
     outs.innerHTML = '';
     for (const [t, txt] of [['Instagram', insta], ['WhatsApp', whats], ['Comentário fixado', pin]]) {
       const ta = h('textarea', { class: 'ti', rows: Math.min(12, txt.split('\n').length + 1) }); ta.value = txt;
@@ -1159,11 +1277,11 @@ export function postTextsPanel(app) {
   app.openSheet('Textos para postar', h('div', {},
     h('p', { class: 'hint' }, 'Preencha e o app monta a descrição do Instagram, do WhatsApp e o comentário fixado. Dá para editar antes de copiar. Números e acusações sempre com fonte e data.'),
     f('Gancho (primeira linha)', 'hook', false, 'ELE FALOU ISSO NA CARA DE TODO MUNDO'),
-    f('Fatos (um por linha)', 'facts', true, 'Em 2014 o Brasil saiu do Mapa da Fome'),
+    f('Fatos (um por linha)', 'facts', true, 'Um fato importante com número e data'),
     f('Frase de efeito', 'phrase', false, 'Não podemos esquecer nossa história'),
-    f('Palavra para comentar', 'word', false, 'LULA'),
-    f('Fontes com data (uma por linha)', 'sources', true, 'ONU/FAO, julho de 2025'),
-    f('Hashtags', 'tags', false, '#SegundoTurno #Eleições2026 #25DeOutubro'),
+    f('Palavra para comentar', 'word', false, 'EU QUERO'),
+    f('Fontes com data (uma por linha)', 'sources', true, 'Instituto, mês e ano'),
+    f('Hashtags', 'tags', false, '#dicas #brasil #reels'),
     outs), { back: () => exportPanel(app) });
   gen();
 }

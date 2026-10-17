@@ -13,6 +13,7 @@ import { needsProxy, makeProxy } from './proxy.js';
 import * as P from './panels.js';
 import { h, $, toast, confirmBox, promptBox, btn } from './ui.js';
 import { svgIcon } from './icons.js';
+import { buildHome } from './home.js';
 import { parseCube } from './lut.js';
 import { itemBase, clipBase, upsertKf } from './kf.js';
 
@@ -39,6 +40,7 @@ async function init() {
   app.renderer = new Renderer(stage);
   app.preview = new Preview(app);
   app.timeline = new Timeline($('#tl'), app);
+  buildHome(app);
   bindStage();
   bindTop();
   window.addEventListener('resize', () => { if (app.project) { fitStage(); app.timeline.build(); app.timeline.scrollTo(app.time); app.requestRender(); } });
@@ -82,6 +84,8 @@ async function showHome() {
 }
 
 async function openProject(p) {
+  // trocando de projeto sem passar pela tela inicial: solta os vídeos do anterior
+  if (app.project && app.project !== p) { try { await saveNow(); } catch (e) { } app.preview.pause(); app.preview.releaseAll(); }
   busy({ title: 'Abrindo projeto' });
   try {
     app.project = p;
@@ -718,63 +722,125 @@ app.cutSilences = async clips => {
 };
 
 // ======================================================================= legenda
-app.mediaNeedingTranscript = () => {
-  const p = app.project;
-  const mids = [...new Set([...p.clips.map(c => c.mid), ...p.items.filter(i => i.kind === 'audio').map(i => i.p.mid)])];
-  return mids.filter(mid => { const m = p.media[mid]; return m && m.kind !== 'image' && !m.noAsr && (m.hasAudio || m.kind === 'audio') && !(p.transcripts[mid] && p.transcripts[mid].length); });
-};
+app.mediaNeedingTranscript = () => app.captionGaps().map(g => g.mid);
 
 app.transcribeAll = async () => {
+  if (app.transcribing) { toast('A legenda já está sendo gerada'); return; }
   app.transcribing = true;
   pauseOptimize();
+  const p = app.project;
   try { return await transcribeAllInner(); }
-  finally { app.transcribing = false; setTimeout(optimizeInBackground, 1500); }
+  finally {
+    app.transcribing = false; setTimeout(optimizeInBackground, 1500);
+    if (app.project !== p) { p.updated = Date.now(); await store.putProject(p); }   // saiu do projeto no meio: guarda mesmo assim
+  }
 };
 
+// faixas da mídia em uso no projeto (só elas são legendadas)
+function usedRanges(p, mid) {
+  const r = [];
+  for (const c of p.clips) if (c.mid === mid) r.push([Math.max(0, c.in - 0.3), c.out + 0.3]);
+  for (const it of p.items) if (it.kind === 'audio' && it.p.mid === mid) r.push([it.p.in || 0, (it.p.in || 0) + it.dur + 0.3]);
+  r.sort((x, y) => x[0] - y[0]);
+  const out = [];
+  for (const x of r) { if (out.length && x[0] <= out[out.length - 1][1]) out[out.length - 1][1] = Math.max(out[out.length - 1][1], x[1]); else out.push([...x]); }
+  return out;
+}
+// o que ainda falta legendar (fora do que já foi coberto)
+function missing(ranges, cover) {
+  if (!cover) return ranges;
+  const out = [];
+  for (let [a, b] of ranges) {
+    for (const [x, y] of cover) {
+      if (y <= a || x >= b) continue;
+      if (x > a + 0.5) out.push([a, x]);
+      a = Math.max(a, y);
+    }
+    if (b - a > 0.5) out.push([a, b]);
+  }
+  return out;
+}
+app.captionGaps = () => {
+  const p = app.project;
+  const mids = [...new Set([...p.clips.map(c => c.mid), ...p.items.filter(i => i.kind === 'audio').map(i => i.p.mid)])];
+  return mids.filter(mid => { const m = p.media[mid]; return m && m.kind !== 'image' && !m.noAsr && (m.hasAudio || m.kind === 'audio'); })
+    .map(mid => ({ mid, todo: (p.transcripts[mid] && p.transcripts[mid].length && !(p.trCover && p.trCover[mid])) ? [] : missing(usedRanges(p, mid), p.trCover && p.trCover[mid]) }))
+    .filter(x => x.todo.length);
+};
+
+// barra de progresso da legenda (não bloqueia: dá para continuar editando)
+function capBar() {
+  let el = document.getElementById('captask');
+  if (!el) {
+    el = h('div', { id: 'captask' }, h('div', { class: 'ct-t' }), h('div', { class: 'ct-bar' }, h('i')), h('button', { type: 'button', class: 'ct-x', 'aria-label': 'Cancelar' }, '✕'));
+    document.body.append(el);
+  }
+  el.hidden = false;
+  return {
+    set: (txt, k) => { el.querySelector('.ct-t').textContent = txt; if (k != null) el.querySelector('i').style.width = Math.round(k * 100) + '%'; },
+    onCancel: fn => { el.querySelector('.ct-x').onclick = fn; },
+    done: () => { el.hidden = true; },
+  };
+}
+
 async function transcribeAllInner() {
-  const mids = app.mediaNeedingTranscript();
-  if (!mids.length) { toast('Todos os vídeos já têm legenda'); return; }
+  const gaps = app.captionGaps();
+  if (!gaps.length) { toast('A legenda já está pronta'); return; }
   const p = app.project;
   let model = 'rapida';
   try { model = localStorage.getItem('ed.asr') || 'rapida'; } catch (e) { }
-  let done = 0, total = 0, cancelledByUser = false;
+  let done = 0, total = 0, cancelledByUser = false, hw = '';
   const fmtEta = s => s > 90 ? `uns ${Math.ceil(s / 60)} min` : `uns ${Math.max(5, Math.round(s / 5) * 5)} s`;
+  const bar = capBar();
+  bar.onCancel(() => { cancelledByUser = true; cancelTranscription(); });
+  p.captions.on = true;
   try {
-    for (const mid of mids) {
-      const m = p.media[mid];
-      const title = mids.length > 1 ? `Legendando ${done + 1} de ${mids.length}` : 'Gerando legenda';
-      busy({ title, detail: 'Lendo o áudio do vídeo', progress: 0, cancel: () => { cancelledByUser = true; cancelTranscription(); } });
-      await ensureEnv(mid, k => busyUpdate({ progress: k * 0.05 }));
+    for (const g of gaps) {
+      const mid = g.mid, m = p.media[mid];
+      const pre = gaps.length > 1 ? `Legenda ${done + 1} de ${gaps.length}: ` : 'Legenda: ';
+      bar.set(pre + 'lendo o áudio', 0);
+      await ensureEnv(mid, k => bar.set(pre + 'lendo o áudio', k * 0.05));
       let mono = app.mono.get(mid);
       if (!mono) { mono = await decodeMono16k(await app.getBlob(mid), m.dur); app.mono.set(mid, mono); }
       const t0 = Date.now();
+      const before = (p.transcripts[mid] || []).slice();
+      const merge = ws => {
+        const keep = before.filter(w => !g.todo.some(([a, b]) => w.s >= a && w.s < b));
+        return [...keep, ...ws].sort((x, y) => x.s - y.s);
+      };
       const words = await transcribe(mono, app.envOf(mid), {
-        model,
+        model, ranges: g.todo,
         onStage: st => {
-          if (st === 'loading') busyUpdate({ detail: 'Abrindo o reconhecimento de voz...', progress: null });
-          if (st === 'preparing') busyUpdate({ detail: 'Preparando o reconhecimento de voz. Na primeira vez pode levar até 1 minuto.', progress: null });
-          if (st === 'safe') busyUpdate({ detail: 'O celular demorou para responder. Continuando em modo seguro (mais lento, porém estável)...', progress: null });
+          if (st === 'loading') bar.set(pre + 'abrindo o reconhecimento de voz', null);
+          if (st === 'preparing') bar.set(pre + 'preparando (na 1ª vez leva até 1 min)', null);
+          if (st === 'gpu') hw = ' · placa de vídeo';
+          if (st === 'cpu') hw = '';
+          if (st === 'safe') bar.set(pre + 'celular lento, seguindo em modo seguro', null);
         },
-        onDownload: (l, t) => busyUpdate({ detail: `Baixando o reconhecimento de voz (só na primeira vez): ${(l / 1e6).toFixed(0)} de ${(t / 1e6).toFixed(0)} MB`, progress: t ? l / t : null }),
+        onDownload: (l, t) => bar.set(`Baixando o reconhecimento de voz (só na 1ª vez): ${(l / 1e6).toFixed(0)} de ${(t / 1e6).toFixed(0)} MB`, t ? l / t : null),
         onProgress: (k, part, parts, eta) => {
-          const sec = Math.round((Date.now() - t0) / 1000);
-          busyUpdate({ detail: `Escutando e escrevendo${parts > 1 ? ` (parte ${part} de ${parts})` : ''}... ${Math.round(k * 100)}%` + (eta > 3 ? ` · falta ${fmtEta(eta)}` : '') + ` · ${sec} s`, progress: 0.05 + 0.95 * k });
+          bar.set(pre + `${Math.round(k * 100)}%` + (eta > 3 ? ` · falta ${fmtEta(eta)}` : '') + hw + ` · ${Math.round((Date.now() - t0) / 1000)} s`, 0.05 + 0.95 * k);
         },
+        // a legenda vai aparecendo enquanto escuta
+        onWords: ws => { p.transcripts[mid] = merge(ws); app.capVersion++; app.requestRender(); },
       });
-      p.transcripts[mid] = words;
+      p.transcripts[mid] = merge(words);
+      p.trCover = p.trCover || {};
+      p.trCover[mid] = [...(p.trCover[mid] || []), ...g.todo].sort((x, y) => x[0] - y[0]);
       total += words.length; done++;
     }
-    busyDone();
-    p.captions.on = true;
+    bar.done();
+    app.capVersion++;
     app.commit();
     toast(total ? `Legenda pronta: ${total} palavras. Confira e corrija se precisar.` : 'Não encontrei fala nesse vídeo.', 4000);
   } catch (e) {
-    busyDone();
+    bar.done();
     const msg = String(e.message || e);
     if (cancelledByUser || msg === 'cancelado' || msg === 'reiniciado') toast('Legenda cancelada');
     else if (/fetch|network|Failed to load|404|Could not locate|Unauthorized/i.test(msg)) toast('Para a primeira legenda o app precisa de internet para baixar o reconhecimento de voz. Conecte e tente de novo.', 6000);
     else toast('Erro na legenda automática: ' + msg, 7000);
-    if (done) app.commit();
+    app.capVersion++;
+    app.commit();
   }
 }
 
@@ -857,17 +923,24 @@ const LEVELS = {
     tool('frame', 'Zona segura', () => P.platformPanel(app)),
     tool('export', 'YouTube e formatos', () => P.platformPanel(app)),
     tool('plus', 'Adicionar mídia', () => app.importFiles('cursor')),
+    tool('mic', 'Teleprompter', () => import('./teleprompter.js').then(T => T.openTeleprompter({
+      onDone: async file => { await addFiles([file], 'cursor'); app.transcribeAll(); },
+      onSave: file => app.saveText(file, file.name, file.type),
+    }))),
   ] },
   audio: { name: 'Áudio', tools: () => [
-    tool('music', 'Música', () => P.audioPanel(app)),
     tool('wave', 'Efeitos sonoros', () => P.soundsPanel(app)),
+    tool('music', 'Música', () => P.audioPanel(app)),
+    tool('person', 'Voz e ruído', () => P.soundsPanel(app, 'voz')),
     tool('mic', 'Narrar', () => app.recordNarration()),
     tool('plus', 'Áudio do celular', () => app.addNarrationFile()),
     tool('beat', 'Batida', () => P.audioPanel(app)),
   ] },
   texto: { name: 'Texto', tools: () => [
+    tool('style', 'Modelos de texto', () => P.textPresetsPanel(app)),
     tool('text', 'Adicionar texto', addText),
     tool('captions', 'Legenda automática', () => P.captionsPanel(app)),
+    tool('star', 'Modelos de legenda', () => P.captionPresetsPanel(app)),
     tool('pencil', 'Corrigir legenda', () => P.captionsEditor(app)),
     tool('card', 'Cartelas', () => P.elementsPanel(app, 'Cartelas')),
     tool('retain', 'Ganchos e CTA', () => P.elementsPanel(app, 'Retenção')),
@@ -888,6 +961,8 @@ function updateToolbar() {
       tool('speed', 'Velocidade', () => P.clipPanel(app, clip, 'speed')),
       tool('volume', 'Volume', () => P.clipPanel(app, clip, 'vol')),
       tool('crop', 'Enquadrar', () => P.clipPanel(app, clip, 'frame')),
+      tool('filter', 'Filtros', () => P.filtersPanel(app, clip)),
+      tool('bg', 'Ajustar', () => P.clipPanel(app, clip, 'cor')),
       tool('kf', 'Animação', () => P.clipPanel(app, clip, 'anim')),
       tool('person', 'Pessoa', () => P.clipPanel(app, clip, 'person')),
       tool('effects', 'Efeitos', () => P.clipPanel(app, clip, 'fx')),
@@ -921,13 +996,15 @@ function updateToolbar() {
     row.append(
       tool('edit', 'Editar', () => openLevel('editar')),
       tool('template', 'Modelos', () => P.templatesPanel(app)),
-      tool('music', 'Áudio', () => openLevel('audio')),
+      tool('music', 'Sons', () => openLevel('audio')),
       tool('text', 'Texto', () => openLevel('texto')),
       tool('captions', 'Legendas', () => P.captionsPanel(app)),
       tool('overlay', 'Sobrepor', () => P.elementsPanel(app, 'Vídeo')),
       tool('sticker', 'Elementos', () => P.elementsPanel(app)),
       tool('chart', 'Gráficos', () => P.elementsPanel(app, 'Gráficos')),
       tool('effects', 'Efeitos', () => P.effectsPanel(app)),
+      tool('filter', 'Filtros', () => P.filtersPanel(app)),
+      tool('bg', 'Ajustar', () => { const c = app.project.clips[0]; if (c) P.clipPanel(app, app.selectedClip() || c, 'cor'); }),
       tool('transition', 'Transições', nearestCut),
       tool('format', 'Formato', () => P.formatPanel(app)),
     );
@@ -1138,6 +1215,89 @@ async function saveBlob(blob, name, quiet) {
 
 // ganchos para teste automatizado
 app.saveText = (text, name, mime = 'application/x-subrip') => saveBlob(new Blob([text], { type: mime }), name);
+// ======================================================================= atalhos da tela inicial e modelos prontos
+app.pickFiles = pickFiles;
+app.importFileAsMedia = async f => { const m = await addMedia(f); if (m.kind === 'image') await loadItemImage(m.id); return m.id; };
+app.newProjectWith = async (files, name, format) => {
+  const p = newProject(name);
+  if (format) p.format = format;
+  await store.putProject(p);
+  await openProject(p);
+  if (files && files.length) await addFiles(files, 'append');
+  return app.project;
+};
+// imagem de cor sólida (fundo das cenas sem vídeo)
+async function colorMedia(color) {
+  const [W, H] = dims(app.project);
+  const c = document.createElement('canvas'); c.width = Math.round(W / 2); c.height = Math.round(H / 2);
+  const x = c.getContext('2d');
+  x.fillStyle = color; x.fillRect(0, 0, c.width, c.height);
+  const g = x.createRadialGradient(c.width / 2, c.height * .4, 0, c.width / 2, c.height / 2, Math.max(c.width, c.height) * .7);
+  g.addColorStop(0, 'rgba(255,255,255,.06)'); g.addColorStop(1, 'rgba(0,0,0,.35)');
+  x.fillStyle = g; x.fillRect(0, 0, c.width, c.height);
+  const blob = await new Promise(r => c.toBlob(r, 'image/png'));
+  const m = await addMedia(new File([blob], 'fundo-' + color.replace('#', '') + '.png', { type: 'image/png' }));
+  m.isColor = true;
+  return m.id;
+}
+app.createFromStoryboard = async (sb, files, vals) => {
+  const { buildStoryboard } = await import('./storyboards.js');
+  const { FILTERS, filterAdj } = await import('./filters.js');
+  const p = newProject(sb.name);
+  p.format = sb.format;
+  await store.putProject(p);
+  await openProject(p);
+  busy({ title: 'Montando o modelo', detail: 'Importando suas mídias', progress: 0 });
+  try {
+    const medias = [];
+    for (let i = 0; i < files.length; i++) {
+      busyUpdate({ detail: `Importando ${i + 1} de ${files.length}`, progress: i / Math.max(1, files.length) });
+      try { const m = await addMedia(files[i]); if (m.kind !== 'audio') medias.push(m); else p.audio.music = { mid: m.id, vol: 0.5, start: 0 }; } catch (e) { toast('Não abri ' + files[i].name, 3000); }
+    }
+    const colors = {};
+    const need = new Set(sb.scenes.filter(sc => sc.media === false || !medias.length).map(sc => sc.bg || '#111111'));
+    for (const c of need) colors[c] = await colorMedia(c);
+    const B = buildStoryboard(sb, medias, vals, c => colors[c] || colors['#111111']);
+    const [W, H] = dims(p), oa = W / H;
+    p.clips = B.clips.map(bc => {
+      const m = p.media[bc.mid];
+      const c = newClip(m);
+      c.in = bc.in; c.out = bc.out; c.kb = bc.kb; c.fx = bc.fx; c.trans = bc.trans;
+      c.fit = bc.fit;
+      if (bc.fit === 'cover' && m.w && m.h && Math.abs(m.w / m.h - oa) / oa > 0.35 && !m.isColor) c.fit = 'blur';
+      if (sb.look && !m.isColor) { const f = FILTERS.find(x => x.id === sb.look); if (f) { c.adj = filterAdj(f); c.look = f.id; } }
+      return c;
+    });
+    const L = layout(p);
+    const durs = p.clips.map(clipDur);
+    for (const it of B.items(L.starts, durs)) p.items.push({ id: uid(), ...it });
+    p.captions = { ...p.captions, ...JSON.parse(JSON.stringify(sb.captions || {})) };
+    if (sb.beat) p.audio.beat = { ...p.audio.beat, ...sb.beat }; else p.audio.beat = { ...p.audio.beat, on: false };
+    if (p.audio.music) p.audio.beat.on = false;
+    p.storyboard = sb.id;
+    for (const it of p.items) if (it.kind === 'image' && it.p.mid) await loadItemImage(it.p.mid);
+    app.applyFormat();
+    app.commit();
+    app.setTime(Math.min(1.2, L.total / 2));
+  } finally { busyDone(); }
+  optimizeInBackground();
+  const talk = p.captions.on && p.clips.some(c => { const m = p.media[c.mid]; return m && m.kind === 'video' && m.hasAudio; });
+  if (talk) { app.transcribeAll(); toast('Modelo pronto. A legenda vai aparecendo enquanto o app escuta. Toque nos textos para trocar.', 5000); }
+  else toast('Modelo pronto. Toque nos textos para trocar e em ▶ para ver.', 4000);
+};
+app.addTextPreset = (pr, start) => {
+  const t0 = start ?? app.time;
+  let last = null;
+  for (const it of pr.items) last = app.addItem(it.kind, JSON.parse(JSON.stringify(it.p)), t0 + (it.at || 0), it.dur || 3);
+  return last;
+};
+app.applyCaptionPreset = cp => {
+  const keepLang = app.project.captions.lang;
+  app.project.captions = { ...app.project.captions, ...JSON.parse(JSON.stringify(cp.cap)), lang: keepLang };
+  app.capVersion++;
+  app.commit(true);
+};
+
 // várias exportações seguidas (todos os formatos, stories de 15 s...)
 app.exportMany = async jobs => {
   const ctl = { aborted: false };
@@ -1201,17 +1361,18 @@ app.translateCaptions = async lang => {
 };
 
 // ouvir 6 s do clipe no cursor com a redução de ruído
-app.previewDenoise = async amount => {
+app.previewDenoise = async (amount, fx) => {
   const p = app.project, L = layout(p), ci = clipIndexAt(p, app.time, L), c = p.clips[ci];
   const m = c && p.media[c.mid];
   if (!m || !m.hasAudio) { toast('Coloque o cursor num clipe com som'); return; }
   const { decodeRange } = await import('./media.js');
-  const { denoiseChannel } = await import('./denoise.js');
+  const { denoiseChannel, voiceFx } = await import('./denoise.js');
   const s = c.in + Math.max(0, app.time - L.starts[ci]);
   busy({ title: 'Preparando a prévia do som' });
   try {
     const [l, r] = await decodeRange(await app.getBlob(c.mid), s, Math.min(m.dur, s + 6));
-    denoiseChannel(l, amount, 48000); denoiseChannel(r, amount, 48000);
+    if (amount > 0) { denoiseChannel(l, amount, 48000); denoiseChannel(r, amount, 48000); }
+    if (fx) { voiceFx(l, fx, 48000); voiceFx(r, fx, 48000); }
     const ac = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 48000 });
     const b = ac.createBuffer(2, l.length, 48000); b.copyToChannel(l, 0); b.copyToChannel(r, 1);
     const src = ac.createBufferSource(); src.buffer = b; src.connect(ac.destination); src.start();

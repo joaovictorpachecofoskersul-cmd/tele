@@ -228,6 +228,39 @@ vec4 f(vec2 uv){ float e=easeIO(uP)*.5; if(abs(uv.x-.5)<e) return B(uv); vec2 q=
 // params: lista de controles mostrados no painel
 // --------------------------------------------------------------------------
 export const EFFECTS = [
+  { id:'zoomblur', name:'Zoom com rastro', group:'Movimento', def:{i:.6}, sfx:'whoosh', glsl:`
+vec4 f(vec2 uv){ vec2 c=vec2(.5); vec3 acc=vec3(0); for(int i=0;i<10;i++){ float k=1.-float(i)*.012*uI*(1.+sin(uT*3.)*.3); acc+=A(c+(uv-c)*k).rgb; } return vec4(acc/10.,1.); }` },
+  { id:'lightsweep', name:'Brilho passando', group:'Luz', def:{i:.7}, sfx:null, glsl:`
+vec4 f(vec2 uv){ vec4 c=A(uv); float x=fract(uT*.35)*2.4-.7; float d=(uv.x+uv.y*.5)-x; float g=exp(-d*d*120.); return vec4(c.rgb+vec3(1.,.97,.9)*g*uI*.8,1.); }` },
+  { id:'flare', name:'Reflexo de lente', group:'Luz', def:{i:.6}, sfx:null, glsl:`
+vec4 f(vec2 uv){ vec4 c=A(uv); vec2 s=vec2(.25+.1*sin(uT*.4),.2); vec2 p=(uv-s)*vec2(asp(),1.); float g=exp(-dot(p,p)*18.)*1.3;
+  vec3 fl=vec3(1.,.85,.6)*g; for(int i=1;i<5;i++){ vec2 q=(uv-mix(s,vec2(.5),float(i)*.5))*vec2(asp(),1.); fl+=vec3(.4,.7,1.)*exp(-dot(q,q)*float(80+i*40))*.35; }
+  float streak=exp(-abs(p.y)*90.)*exp(-abs(p.x)*1.5)*.6; return vec4(1.-(1.-c.rgb)*(1.-(fl+streak)*uI),1.); }` },
+  { id:'rain', name:'Chuva', group:'Clima', def:{i:.7}, sfx:null, glsl:`
+vec4 f(vec2 uv){ vec4 c=A(uv); vec3 col=c.rgb*(1.-.25*uI); float r=0.; for(int l=0;l<3;l++){ float fl=float(l); vec2 q=uv*vec2(60.+fl*40.,3.+fl); q.y+=uT*(6.+fl*3.); q.x+=q.y*.15; vec2 id=floor(q); vec2 g=fract(q);
+  float h=hash(id); r+=step(.92,h)*smoothstep(.05,0.,abs(g.x-.5)*.6)*smoothstep(1.,.3,g.y)*(.5+fl*.2); } return vec4(col+vec3(.8,.85,.95)*r*uI*.6,1.); }` },
+  { id:'snow', name:'Neve', group:'Clima', def:{i:.7}, sfx:null, glsl:`
+vec4 f(vec2 uv){ vec4 c=A(uv); float s=0.; for(int l=0;l<3;l++){ float fl=float(l); vec2 q=uv*vec2(12.+fl*8.)*vec2(asp(),1.); q.y+=uT*(.8+fl*.4); q.x+=sin(uT+q.y*.5)*.3; vec2 id=floor(q); vec2 g=fract(q)-.5;
+  vec2 o=vec2(hash(id)-.5,hash(id+3.)-.5)*.6; float d=length(g-o); s+=step(.6,hash(id+7.))*smoothstep(.08-fl*.02,.0,d); } return vec4(c.rgb+vec3(1.)*s*uI,1.); }` },
+  { id:'posterize', name:'Pôster (cores chapadas)', group:'Estilo', def:{i:.7}, sfx:null, glsl:`
+vec4 f(vec2 uv){ vec4 c=A(uv); float n=mix(12.,3.,uI); vec3 p=floor(c.rgb*n+.5)/n; return vec4(p,1.); }` },
+  { id:'thermal', name:'Câmera térmica', group:'Estilo', def:{i:1.}, sfx:null, glsl:`
+vec4 f(vec2 uv){ vec4 c=A(uv); float l=luma(c.rgb); vec3 t=l<.33?mix(vec3(0,0,.4),vec3(.6,0,.8),l*3.):l<.66?mix(vec3(.6,0,.8),vec3(1.,.4,0),(l-.33)*3.):mix(vec3(1.,.4,0),vec3(1.,1.,.6),(l-.66)*3.); return vec4(mix(c.rgb,t,uI),1.); }` },
+  { id:'sketch', name:'Desenho a lápis', group:'Estilo', def:{i:1.}, sfx:null, glsl:`
+vec4 f(vec2 uv){ vec2 px=1./uRes; float gx=luma(A(uv+vec2(px.x,0)).rgb)-luma(A(uv-vec2(px.x,0)).rgb); float gy=luma(A(uv+vec2(0,px.y)).rgb)-luma(A(uv-vec2(0,px.y)).rgb);
+  float e=1.-clamp(length(vec2(gx,gy))*6.,0.,1.); float paper=.93+.05*noise(uv*vec2(400.,300.)); vec3 sk=vec3(e*paper); return vec4(mix(A(uv).rgb,sk,uI),1.); }` },
+  { id:'tiltshift', name:'Miniatura (tilt-shift)', group:'Estilo', def:{i:.8}, sfx:null, glsl:`
+vec4 f(vec2 uv){ float d=clamp(abs(uv.y-.5)*2.6-.35,0.,1.)*uI; vec3 acc=vec3(0); for(int i=-4;i<=4;i++){ for(int j=-2;j<=2;j++){ acc+=A(uv+vec2(float(i),float(j))*d*.004).rgb; } } acc/=45.;
+  vec3 c=mix(A(uv).rgb,acc,smoothstep(0.,.3,d)); c=mix(vec3(luma(c)),c,1.25); return vec4(c,1.); }` },
+  { id:'crt', name:'TV antiga', group:'Glitch', def:{i:.8}, sfx:'chiado', glsl:`
+vec4 f(vec2 uv){ vec2 d=uv-.5; vec2 q=.5+d*(1.+dot(d,d)*.25*uI); vec4 c=Ak(q); float sl=.85+.15*sin(q.y*uRes.y*1.5); float vig=1.-dot(d,d)*1.2*uI;
+  vec3 col=vec3(Ak(q+vec2(.002*uI,0)).r,c.g,Ak(q-vec2(.002*uI,0)).b)*sl*vig; return vec4(col,1.); }` },
+  { id:'dreamy', name:'Sonho (brilho suave)', group:'Luz', def:{i:.6}, sfx:null, glsl:`
+vec4 f(vec2 uv){ vec3 acc=vec3(0); for(int i=0;i<16;i++){ float a=float(i)*PI/8.; acc+=A(uv+vec2(cos(a),sin(a))*.02).rgb; } acc/=16.; vec4 c=A(uv);
+  vec3 r=1.-(1.-c.rgb)*(1.-acc*.6); return vec4(mix(c.rgb,r*vec3(1.03,1.,1.05),uI),1.); }` },
+  { id:'heartbeat', name:'Batida do coração', group:'Movimento', def:{i:.6}, sfx:'batida', glsl:`
+vec4 f(vec2 uv){ float b=fract(uT*1.2); float k=uI*(.06*exp(-b*12.)+.04*exp(-max(0.,b-.22)*12.)*step(.22,b)); vec4 c=A((uv-.5)/(1.+k)+.5); float v=1.-dot(uv-.5,uv-.5)*k*12.; return vec4(c.rgb*v+vec3(.5,0,0)*k*2.,1.); }` },
+
   { id:'shake', name:'Tremor', group:'Movimento', def:{i:.6}, sfx:null, glsl:`
 vec4 f(vec2 uv){ vec2 o=vec2(noise(vec2(uT*35.,1.))-.5,noise(vec2(uT*35.,9.))-.5)*.06*uI; float a=(noise(vec2(uT*25.,4.))-.5)*.05*uI;
   vec2 q=fromP(rot(toP(uv),a))+o; q=(q-.5)/(1.+.06*uI)+.5; return A(q); }` },

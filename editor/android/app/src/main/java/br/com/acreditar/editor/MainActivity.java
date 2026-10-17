@@ -104,13 +104,16 @@ public class MainActivity extends Activity {
             @Override
             public void onPermissionRequest(final PermissionRequest request) {
                 runOnUiThread(() -> {
-                    if (checkSelfPermission(android.Manifest.permission.RECORD_AUDIO) == 0) {
-                        request.grant(new String[]{PermissionRequest.RESOURCE_AUDIO_CAPTURE});
-                    } else {
-                        if (pendingMic != null) pendingMic.deny();
-                        pendingMic = request;
-                        requestPermissions(new String[]{android.Manifest.permission.RECORD_AUDIO}, REQ_MIC);
+                    // microfone (narração) e câmera (teleprompter)
+                    java.util.List<String> need = new java.util.ArrayList<>();
+                    for (String r : request.getResources()) {
+                        if (PermissionRequest.RESOURCE_AUDIO_CAPTURE.equals(r) && checkSelfPermission(android.Manifest.permission.RECORD_AUDIO) != 0) need.add(android.Manifest.permission.RECORD_AUDIO);
+                        if (PermissionRequest.RESOURCE_VIDEO_CAPTURE.equals(r) && checkSelfPermission(android.Manifest.permission.CAMERA) != 0) need.add(android.Manifest.permission.CAMERA);
                     }
+                    if (need.isEmpty()) { grantAllowed(request); return; }
+                    if (pendingMic != null) pendingMic.deny();
+                    pendingMic = request;
+                    requestPermissions(need.toArray(new String[0]), REQ_MIC);
                 });
             }
 
@@ -177,8 +180,7 @@ public class MainActivity extends Activity {
     public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] results) {
         super.onRequestPermissionsResult(requestCode, permissions, results);
         if (requestCode == REQ_MIC && pendingMic != null) {
-            if (checkSelfPermission(android.Manifest.permission.RECORD_AUDIO) == 0) pendingMic.grant(new String[]{PermissionRequest.RESOURCE_AUDIO_CAPTURE});
-            else pendingMic.deny();
+            grantAllowed(pendingMic);
             pendingMic = null;
         }
     }
@@ -204,6 +206,15 @@ public class MainActivity extends Activity {
         }
         web.destroy();
         super.onDestroy();
+    }
+
+    private void grantAllowed(PermissionRequest request) {
+        java.util.List<String> ok = new java.util.ArrayList<>();
+        for (String r : request.getResources()) {
+            if (PermissionRequest.RESOURCE_AUDIO_CAPTURE.equals(r) && checkSelfPermission(android.Manifest.permission.RECORD_AUDIO) == 0) ok.add(r);
+            if (PermissionRequest.RESOURCE_VIDEO_CAPTURE.equals(r) && checkSelfPermission(android.Manifest.permission.CAMERA) == 0) ok.add(r);
+        }
+        if (ok.isEmpty()) request.deny(); else request.grant(ok.toArray(new String[0]));
     }
 
     /* ---------- salvar na galeria ---------- */

@@ -55,6 +55,103 @@ function cross(ctx, x, y, s, color) {   // ✕ desenhado
 }
 
 export const GRAFICO_DRAW = {
+  // barras deitadas (bom para nomes compridos)
+  g_hbars(ctx, it, t, W, H) {
+    return base(ctx, it, t, W, H, ({ q, pal, local, U, cx, cy, stroke }) => {
+      const rows = parseRows(q.data); if (!rows.length) return null;
+      const gw = Math.min(W * 0.86, U * 1.2), bh = U * 0.06, gap = U * 0.028;
+      const top = cy - rows.length * (bh + gap) / 2 + U * .04;
+      const mx = Math.max(1e-9, ...rows.map(r => r.v));
+      T(ctx, q.title, cx, top - U * .09, U * .052, pal.text, { stroke, maxw: gw });
+      rows.forEach((r, i) => {
+        const k = eio((local - .2 - i * .15) / .8), y = top + i * (bh + gap);
+        const w = gw * .62 * r.v / mx * k;
+        T(ctx, r.label, cx - gw / 2, y - U * .012, U * .03, pal.text, { align: 'left', weight: 700, stroke, maxw: gw * .6 });
+        ctx.fillStyle = 'rgba(120,120,130,.35)'; roundRect(ctx, cx - gw / 2, y + U * .008, gw * .62, bh * .7, bh * .2); ctx.fill();
+        ctx.fillStyle = r.label === q.highlight ? (q.color2 || YEL) : (q.color || RED); roundRect(ctx, cx - gw / 2, y + U * .008, Math.max(2, w), bh * .7, bh * .2); ctx.fill();
+        T(ctx, fmt(r.v * k, +q.dec || 0) + (q.suffix || ''), cx - gw / 2 + w + U * .015, y + U * .008 + bh * .35, U * .034, pal.text, { align: 'left', stroke, alpha: cl(k * 2) });
+      });
+      return { x: cx - gw / 2, y: top - U * .13, w: gw, h: rows.length * (bh + gap) + U * .15 };
+    });
+  },
+  // velocímetro
+  g_gauge(ctx, it, t, W, H) {
+    return base(ctx, it, t, W, H, ({ q, pal, local, U, cx, cy, stroke }) => {
+      const r = U * .28, k = eback(local / 1.6), v = (+q.pct || 0) / 100 * Math.min(1, k);
+      ctx.lineWidth = U * .05; ctx.lineCap = 'butt';
+      const segs = [['#22C55E', 0, .33], ['#FACC15', .33, .66], ['#EF4444', .66, 1]];
+      for (const [c, a, b] of segs) { ctx.strokeStyle = c; ctx.beginPath(); ctx.arc(cx, cy, r, Math.PI + a * Math.PI, Math.PI + b * Math.PI); ctx.stroke(); }
+      const ang = Math.PI + v * Math.PI;
+      ctx.strokeStyle = pal.text; ctx.lineWidth = U * .014; ctx.lineCap = 'round';
+      ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(cx + Math.cos(ang) * r * .9, cy + Math.sin(ang) * r * .9); ctx.stroke();
+      ctx.fillStyle = pal.text; ctx.beginPath(); ctx.arc(cx, cy, U * .025, 0, Math.PI * 2); ctx.fill();
+      T(ctx, fmt(v * 100, 0) + '%', cx, cy + U * .1, U * .09, pal.text, { stroke });
+      T(ctx, q.label, cx, cy + U * .19, U * .042, pal.text, { stroke, maxw: W * .9 });
+      T(ctx, q.title, cx, cy - r - U * .08, U * .05, pal.text, { stroke, maxw: W * .9 });
+      return { x: cx - r - U * .05, y: cy - r - U * .12, w: 2 * r + U * .1, h: r + U * .36 };
+    });
+  },
+  // ícones: N de cada 100 (grade de quadradinhos)
+  g_icons(ctx, it, t, W, H) {
+    return base(ctx, it, t, W, H, ({ q, pal, local, U, cx, cy, stroke }) => {
+      const n = Math.max(0, Math.min(100, Math.round(+q.pct || 0))), cell = U * .055, g = cell * .2;
+      const side = 10 * cell + 9 * g, x0 = cx - side / 2, y0 = cy - side / 2;
+      T(ctx, q.title, cx, y0 - U * .07, U * .05, pal.text, { stroke, maxw: W * .9 });
+      for (let i = 0; i < 100; i++) {
+        const r = Math.floor(i / 10), c = i % 10;
+        const k = cl((local - .2 - i * .012) / .25);
+        ctx.fillStyle = i < n ? (q.color || RED) : 'rgba(150,150,160,.35)';
+        const s = cell * (.4 + .6 * eback(k));
+        ctx.globalAlpha = cl(k * 3);
+        roundRect(ctx, x0 + c * (cell + g) + (cell - s) / 2, y0 + r * (cell + g) + (cell - s) / 2, s, s, s * .25); ctx.fill();
+      }
+      ctx.globalAlpha = 1;
+      T(ctx, n + ' EM CADA 100', cx, y0 + side + U * .06, U * .055, q.color || RED, { stroke: .14 });
+      T(ctx, q.label, cx, y0 + side + U * .12, U * .036, pal.text, { stroke, maxw: W * .9 });
+      return { x: x0, y: y0 - U * .1, w: side, h: side + U * .26 };
+    });
+  },
+  // antes x depois com seta e variação
+  g_change(ctx, it, t, W, H) {
+    return base(ctx, it, t, W, H, ({ q, pal, local, U, cx, cy, stroke }) => {
+      const a = +q.a || 0, b = +q.b || 0, ch = a ? (b - a) / Math.abs(a) * 100 : 0;
+      const up = b >= a, col = up === (q.goodUp !== false) ? '#22C55E' : '#EF4444';
+      const ka = eio(local / .8), kb = eio((local - .8) / .9);
+      T(ctx, q.title, cx, cy - U * .24, U * .05, pal.text, { stroke, maxw: W * .9 });
+      T(ctx, q.la || 'ANTES', cx - U * .25, cy - U * .12, U * .035, pal.note || pal.text, { stroke });
+      T(ctx, (q.prefix || '') + fmt(a * ka, +q.dec || 0) + (q.suffix || ''), cx - U * .25, cy, U * .09, pal.text, { stroke, maxw: U * .45 });
+      T(ctx, q.lb || 'DEPOIS', cx + U * .25, cy - U * .12, U * .035, pal.note || pal.text, { stroke, alpha: cl(kb * 3) });
+      T(ctx, (q.prefix || '') + fmt(a + (b - a) * kb, +q.dec || 0) + (q.suffix || ''), cx + U * .25, cy, U * .09, col, { stroke, maxw: U * .45, alpha: cl(kb * 3) });
+      ctx.save(); ctx.globalAlpha *= cl((local - .6) / .3); ctx.fillStyle = col; ctx.translate(cx, cy); if (!up) ctx.scale(1, -1);
+      ctx.beginPath(); ctx.moveTo(-U * .04, U * .03); ctx.lineTo(0, -U * .04); ctx.lineTo(U * .04, U * .03); ctx.closePath(); ctx.fill(); ctx.restore();
+      ctx.save(); ctx.globalAlpha *= cl((local - 1.6) / .3);
+      const tag = (ch >= 0 ? '+' : '') + fmt(ch, 0) + '%';
+      ctx.font = cssFont('Poppins', U * .05, 900); const tw = ctx.measureText(tag).width + U * .06;
+      ctx.fillStyle = col; roundRect(ctx, cx - tw / 2, cy + U * .1, tw, U * .08, U * .04); ctx.fill(); ctx.restore();
+      T(ctx, tag, cx, cy + U * .14, U * .05, '#FFFFFF', { alpha: cl((local - 1.6) / .3) });
+      return { x: cx - U * .5, y: cy - U * .3, w: U, h: U * .5 };
+    });
+  },
+  // barra 100% dividida em partes
+  g_stack(ctx, it, t, W, H) {
+    return base(ctx, it, t, W, H, ({ q, pal, local, U, cx, cy, stroke }) => {
+      const rows = parseRows(q.data); if (!rows.length) return null;
+      const tot = rows.reduce((s, r) => s + Math.max(0, r.v), 0) || 1;
+      const gw = Math.min(W * .86, U * 1.2), bh = U * .09, x0 = cx - gw / 2;
+      const colors = [RED, YEL, '#3B82F6', '#22C55E', '#A855F7', '#F97316'];
+      T(ctx, q.title, cx, cy - U * .12, U * .05, pal.text, { stroke, maxw: gw });
+      let x = x0;
+      rows.forEach((r, i) => {
+        const k = eio((local - .2 - i * .25) / .6), w = gw * r.v / tot * k;
+        ctx.fillStyle = colors[i % colors.length]; ctx.fillRect(x, cy - bh / 2, w, bh);
+        if (k > .9 && w > U * .08) T(ctx, fmt(r.v / tot * 100, 0) + '%', x + w / 2, cy, U * .04, '#111111', { weight: 900 });
+        T(ctx, r.label, x0 + gw * (i + .5) / rows.length, cy + bh / 2 + U * .05, U * .03, colors[i % colors.length], { stroke, maxw: gw / rows.length, alpha: cl(k * 2) });
+        x += gw * r.v / tot;
+      });
+      return { x: x0, y: cy - U * .16, w: gw, h: U * .3 };
+    });
+  },
+
   // barras em corrida: tabela "Ano, A, B, C" com uma linha por ano; as barras trocam de lugar
   g_race(ctx, it, t, W, H) {
     return base(ctx, it, t, W, H, ({ q, pal, local, U, cx, cy, stroke }) => {
@@ -334,6 +431,11 @@ export const GRAFICO_DRAW = {
 
 const G = (kind, name, p) => ({ kind, name, group: 'Gráficos', p: { bg: 'none', fonte: '', speed: 1, x: .5, y: .45, ...p } });
 export const GRAFICO_ELEMENTS = [
+  G('g_hbars', 'Barras deitadas', { title: 'RANKING', data: 'Primeiro lugar: 48\nSegundo lugar: 31\nTerceiro lugar: 22\nQuarto lugar: 12', highlight: 'Primeiro lugar', suffix: '', color: RED, color2: YEL }),
+  G('g_gauge', 'Velocímetro', { title: 'NÍVEL DE RISCO', pct: 78, label: 'ALTO' }),
+  G('g_icons', '100 quadradinhos (N em 100)', { title: 'DE CADA 100 PESSOAS', pct: 23, label: 'NÃO TÊM ACESSO', color: RED }),
+  G('g_change', 'Antes e depois (variação)', { title: 'PREÇO DO ALIMENTO', a: 10, b: 15.5, la: '2020', lb: '2026', prefix: 'R$ ', suffix: '', dec: 2, goodUp: false }),
+  G('g_stack', 'Barra dividida (100%)', { title: 'DE ONDE VEM O DINHEIRO', data: 'Impostos: 55\nTaxas: 25\nOutros: 20' }),
   G('g_race', 'Barras em corrida', { title: 'RANKING AO LONGO DOS ANOS', data: 'Ano, Brasil, México, Argentina, Chile\n2000, 10, 14, 8, 5\n2005, 18, 16, 9, 7\n2010, 30, 20, 12, 9\n2015, 26, 25, 13, 12\n2020, 34, 24, 11, 15', top: 6, suffix: '', colors: '' }),
   G('g_vbars', 'Barras verticais', { title: 'TÍTULO DO GRÁFICO', data: 'Norte: 42\nNordeste: 35\nCentro-Oeste: 12\nSudeste: 8\nSul: 3', highlight: 'Norte', suffix: '', color: RED }),
   G('g_line', 'Linha que se desenha', { title: 'EVOLUÇÃO', data: '2003: 10\n2008: 18\n2013: 30\n2018: 22\n2023: 38\n2026: 45', suffix: '', color: RED }),

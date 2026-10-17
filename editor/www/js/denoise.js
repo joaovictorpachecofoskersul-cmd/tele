@@ -73,3 +73,46 @@ export function denoiseChannel(x, amount = 0.7, sr = 48000) {
   for (let i = 0; i < n; i++) x[i] = norm[i] > 1e-3 ? out[i] / norm[i] : x[i] * floor;
   return x;
 }
+
+// Efeitos de voz (filtros simples): melhorar voz, rádio, telefone, voz grave, megafone, eco
+class BQ {
+  constructor(type, f, q, sr, gain = 0) {
+    const w = 2 * Math.PI * f / sr, c = Math.cos(w), s = Math.sin(w), al = s / (2 * q), A = Math.pow(10, gain / 40);
+    let b0, b1, b2, a0, a1, a2;
+    if (type === 'hp') { b0 = (1 + c) / 2; b1 = -(1 + c); b2 = (1 + c) / 2; a0 = 1 + al; a1 = -2 * c; a2 = 1 - al; }
+    else if (type === 'lp') { b0 = (1 - c) / 2; b1 = 1 - c; b2 = (1 - c) / 2; a0 = 1 + al; a1 = -2 * c; a2 = 1 - al; }
+    else { b0 = 1 + al * A; b1 = -2 * c; b2 = 1 - al * A; a0 = 1 + al / A; a1 = -2 * c; a2 = 1 - al / A; }   // peak
+    this.b = [b0 / a0, b1 / a0, b2 / a0]; this.a = [a1 / a0, a2 / a0]; this.x1 = this.x2 = this.y1 = this.y2 = 0;
+  }
+  run(x) { const y = this.b[0] * x + this.b[1] * this.x1 + this.b[2] * this.x2 - this.a[0] * this.y1 - this.a[1] * this.y2; this.x2 = this.x1; this.x1 = x; this.y2 = this.y1; this.y1 = y; return y; }
+}
+export const VOICE_FX = [
+  { id: '', name: 'Nenhum' }, { id: 'melhorar', name: 'Melhorar voz' }, { id: 'radio', name: 'Rádio' }, { id: 'telefone', name: 'Telefone' },
+  { id: 'grave', name: 'Voz encorpada' }, { id: 'megafone', name: 'Megafone' }, { id: 'eco', name: 'Eco' }, { id: 'sala', name: 'Sala (reverb)' },
+];
+export function voiceFx(x, type, sr = 48000) {
+  if (!type) return x;
+  const chain = {
+    melhorar: [new BQ('hp', 85, 0.7, sr), new BQ('peak', 220, 1, sr, -2), new BQ('peak', 3200, 0.9, sr, 4), new BQ('peak', 9000, 0.8, sr, 2)],
+    radio: [new BQ('hp', 400, 0.8, sr), new BQ('lp', 4500, 0.8, sr), new BQ('peak', 1500, 1, sr, 5)],
+    telefone: [new BQ('hp', 500, 0.9, sr), new BQ('lp', 3000, 0.9, sr), new BQ('hp', 500, 0.9, sr), new BQ('lp', 3000, 0.9, sr)],
+    grave: [new BQ('peak', 140, 0.8, sr, 6), new BQ('peak', 3000, 1, sr, 2)],
+    megafone: [new BQ('hp', 700, 1, sr), new BQ('lp', 3500, 1, sr), new BQ('peak', 1800, 2, sr, 8)],
+    eco: [], sala: [],
+  }[type] || [];
+  for (let i = 0; i < x.length; i++) { let v = x[i]; for (const f of chain) v = f.run(v); x[i] = v; }
+  if (type === 'megafone' || type === 'radio') for (let i = 0; i < x.length; i++) x[i] = Math.tanh(x[i] * 2.2) / 1.6;
+  if (type === 'melhorar') {
+    // compressor suave: voz mais presente e uniforme
+    let env = 0; const at = Math.exp(-1 / (0.005 * sr)), rl = Math.exp(-1 / (0.15 * sr));
+    for (let i = 0; i < x.length; i++) { const a = Math.abs(x[i]); env = a > env ? at * env + (1 - at) * a : rl * env + (1 - rl) * a; const g = env > 0.12 ? Math.pow(0.12 / env, 0.5) : 1; x[i] *= g * 1.6; }
+  }
+  if (type === 'eco') { const d = Math.round(0.28 * sr); for (let i = d; i < x.length; i++) x[i] += x[i - d] * 0.4; }
+  if (type === 'sala') {
+    const taps = [0.031, 0.047, 0.061, 0.083, 0.097, 0.113].map(t => Math.round(t * sr));
+    const y = Float32Array.from(x);
+    for (let i = 0; i < x.length; i++) { let v = 0; for (const tp of taps) if (i >= tp) v += y[i - tp]; x[i] = y[i] + v * 0.12; }
+    for (let k = 0; k < 2; k++) { const d = Math.round((0.15 + k * 0.07) * sr); for (let i = d; i < x.length; i++) x[i] += x[i - d] * 0.25; }
+  }
+  return x;
+}

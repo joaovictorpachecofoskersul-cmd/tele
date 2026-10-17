@@ -11,6 +11,10 @@ export const TEXT_ANIMS = [
   { id: 'pop', name: 'Pular' }, { id: 'fade', name: 'Aparecer' }, { id: 'slide', name: 'Subir' },
   { id: 'type', name: 'Máquina de escrever' }, { id: 'letters3d', name: 'Letras 3D com brilho' },
   { id: 'bounce', name: 'Quicar' }, { id: 'blink', name: 'Piscar' }, { id: 'zoom', name: 'Zoom de longe' },
+  { id: 'words', name: 'Palavra por palavra' }, { id: 'letters', name: 'Letra por letra' }, { id: 'wave', name: 'Onda' },
+  { id: 'glitch', name: 'Glitch' }, { id: 'neon', name: 'Neon piscando' }, { id: 'blurin', name: 'Desfoque entrando' },
+  { id: 'reveal', name: 'Revelar da esquerda' }, { id: 'highlight', name: 'Marca-texto' }, { id: 'drop', name: 'Cair de cima' },
+  { id: 'spin', name: 'Girar entrando' }, { id: 'stretch', name: 'Esticar' }, { id: 'shake', name: 'Tremer' },
   { id: 'none', name: 'Sem animação' },
 ];
 
@@ -60,6 +64,15 @@ export const ELEMENTS = [
   { kind: 'pip', name: 'Vídeo em círculo', p: { mid: null, in: 0, x: .8, y: .78, w: .36, h: .36, shape: 'circle', border: '#FFDE00', bw: .008, shadow: true, vol: 0, cut: false, anim: 'pop', zoom: 1, fit: 'cover' }, needsVideo: true },
   { kind: 'pip', name: 'Tela dividida (metade de cima)', p: { mid: null, in: 0, x: .5, y: .25, w: 1, h: .5, shape: 'rect', border: '', bw: 0, shadow: false, vol: 0, cut: false, anim: 'none', zoom: 1, fit: 'cover' }, needsVideo: true },
   { kind: 'pip', name: 'Pessoa recortada por cima', p: { mid: null, in: 0, x: .5, y: .62, w: .9, h: .7, shape: 'rect', border: '', bw: 0, shadow: false, vol: 0, cut: true, anim: 'pop', zoom: 1, fit: 'contain' }, needsVideo: true },
+  { kind: 'e_rating', name: 'Avaliação (estrelas)', group: 'Redes sociais', p: { x: .5, y: .3, stars: 5, size: 1, color: '#FACC15', text: 'NOTA MÁXIMA' } },
+  { kind: 'e_subscribe', name: 'Botão inscrever-se', group: 'Redes sociais', p: { x: .5, y: .8, text: 'INSCREVER-SE', done: 'INSCRITO ✓', color: '#FF0000' } },
+  { kind: 'e_typing', name: 'Mensagem chegando', group: 'Redes sociais', p: { x: .5, y: .4, text: 'Oi! Viu o vídeo?', side: 'esquerda', wait: 1.5 } },
+  { kind: 'e_pin', name: 'Pino de local', group: 'Destaques', p: { x: .5, y: .55, text: 'AQUI', color: '#EF4444' } },
+  { kind: 'e_price', name: 'Etiqueta de preço', group: 'Destaques', p: { x: .7, y: .3, price: 'R$ 49,90', old: 'R$ 89,90', color: '#EF4444', size: .1 } },
+  { kind: 'e_sparkles', name: 'Brilhos', group: 'Destaques', p: { x: .5, y: .4, size: .25, color: '#FFF7AE' } },
+  { kind: 'e_loading', name: 'Barra carregando', group: 'Destaques', p: { x: .5, y: .5, text: 'CARREGANDO...', color: '#22C55E' } },
+  { kind: 'e_underline', name: 'Sublinhado à mão', group: 'Destaques', p: { x: .5, y: .35, w: .5, color: '#FFE600' } },
+  { kind: 'e_check', name: 'Certo ✓ / Errado ✕', group: 'Destaques', p: { x: .5, y: .4, mode: 'certo', size: .18, color: '' } },
   { kind: 'image', name: 'Imagem / logo', p: { mid: null, x: .5, y: .15, scale: .3, opacity: 1, anim: 'pop', credit: '', kb: false }, needsImage: true },
 ];
 
@@ -144,8 +157,17 @@ function textBlock(ctx, it, t, W, H) {
   const bw = Math.max(...widths, 1);
   const cx = q.x * W, cy = q.y * H;
   const box = { x: cx - bw / 2 - size * .35, y: cy - lines.length * lh / 2 - size * .2, w: bw + size * .7, h: lines.length * lh + size * .4 };
-  let alpha = 1, sc = 1, dy = 0, visible = txt.length;
+  let alpha = 1, sc = 1, dy = 0, dx = 0, sx = 1, rot = 0, visible = txt.length, blur = 0, clipW = 1;
   switch (q.anim) {
+    case 'drop': { const e = 1 - Math.pow(1 - a, 3); dy = -(1 - easeOutBounce(a)) * H * .25; alpha = Math.min(1, e * 4); break; }
+    case 'spin': rot = (1 - easeOut(a)) * -200; sc = .2 + .8 * easeOutBack(a); alpha = Math.min(1, a * 3); break;
+    case 'stretch': sx = .05 + .95 * easeOutBack(a); alpha = Math.min(1, a * 4); break;
+    case 'shake': dx = Math.sin(local * 45) * size * .05; dy = Math.cos(local * 38) * size * .03; alpha = Math.min(1, a * 3); break;
+    case 'blurin': blur = (1 - a) * size * .35; sc = 1.35 - .35 * easeOut(a); alpha = a; break;
+    case 'reveal': clipW = easeOut(clamp01(local / .6)); break;
+    case 'highlight': clipW = 1; break;
+    case 'neon': alpha = local < .6 ? ((Math.floor(local * 14) % 3) ? .25 : 1) : (.92 + .08 * Math.sin(local * 20)); break;
+    case 'words': case 'letters': case 'wave': case 'glitch': alpha = 1; break;
     case 'pop': sc = .3 + .7 * easeOutBack(a); alpha = Math.min(1, a * 3); break;
     case 'fade': alpha = a; break;
     case 'slide': dy = (1 - easeOut(a)) * size * 1.2; alpha = a; break;
@@ -157,14 +179,26 @@ function textBlock(ctx, it, t, W, H) {
   }
   alpha *= b;
   ctx.globalAlpha = alpha;
-  ctx.translate(cx, cy + dy); ctx.scale(sc, sc); ctx.translate(-cx, -cy);
+  ctx.translate(cx + dx, cy + dy); ctx.scale(sc * sx, sc); if (rot) ctx.rotate(rot * Math.PI / 180); ctx.translate(-cx, -cy);
   if (q.rot) { ctx.translate(cx, cy); ctx.rotate(q.rot * Math.PI / 180); ctx.translate(-cx, -cy); }
+  if (blur > 0.5) ctx.filter = `blur(${blur.toFixed(1)}px)`;
+  if (q.anim === 'reveal') { ctx.beginPath(); ctx.rect(box.x - size, box.y - size, (box.w + size * 2) * clipW, box.h + size * 2); ctx.clip(); }
+  if (q.anim === 'highlight') {
+    const k = easeOut(clamp01(local / .5));
+    ctx.fillStyle = q.bg || '#FFE600';
+    lines.forEach((ln, i) => { const w = widths[i], y = cy + (i - (lines.length - 1) / 2) * lh; ctx.fillRect(cx - w / 2 - size * .15, y - size * .5, (w + size * .3) * k, size * 1.0); });
+    if (!q.stroke) { ctx.save(); ctx.globalAlpha *= clamp01((local - .25) / .2); }
+    flatChars(ctx, lines, cx, cy, lh, size, q, local, 'none');
+    if (!q.stroke) ctx.restore();
+    return box;
+  }
   if (q.bg) {
     ctx.fillStyle = q.bg;
     if (q.full) ctx.fillRect(0, box.y, W, box.h);
     else { roundRect(ctx, box.x, box.y, box.w, box.h, size * .18); ctx.fill(); }
   }
   if (q.anim === 'letters3d') { letters3d(ctx, lines, cx, cy, lh, size, q, local); return box; }
+  if (['words', 'letters', 'wave', 'glitch', 'neon'].includes(q.anim)) { flatChars(ctx, lines, cx, cy, lh, size, q, local, q.anim); ctx.filter = 'none'; return box; }
   let shown = 0;
   lines.forEach((ln, i) => {
     const y = cy + (i - (lines.length - 1) / 2) * lh;
@@ -185,6 +219,80 @@ function textBlock(ctx, it, t, W, H) {
     }
   });
   return box;
+}
+
+function easeOutBounce(x) {
+  const n = 7.5625, d = 2.75;
+  if (x < 1 / d) return n * x * x;
+  if (x < 2 / d) return n * (x -= 1.5 / d) * x + .75;
+  if (x < 2.5 / d) return n * (x -= 2.25 / d) * x + .9375;
+  return n * (x -= 2.625 / d) * x + .984375;
+}
+
+// texto desenhado por palavra/letra: palavra por palavra, letra por letra, onda, glitch, neon
+function flatChars(ctx, lines, cx, cy, lh, size, q, local, mode) {
+  const stroke = (s, x, y) => {
+    if (!q.stroke) return;
+    ctx.lineJoin = 'round'; ctx.lineWidth = size * .16; ctx.strokeStyle = q.stroke; ctx.strokeText(s, x, y);
+  };
+  let wi = 0, ci = 0;
+  ctx.textAlign = 'left';
+  lines.forEach((ln, li) => {
+    const y0 = cy + (li - (lines.length - 1) / 2) * lh;
+    const total = ctx.measureText(ln).width;
+    let x = cx - total / 2;
+    if (mode === 'glitch') {
+      const j = Math.floor(local * 12);
+      const off = (hash(j + li) - .5) * size * (local < .5 ? .25 : .07);
+      ctx.save(); ctx.globalCompositeOperation = 'lighter';
+      ctx.fillStyle = 'rgba(255,0,60,.8)'; ctx.fillText(ln, x + off, y0);
+      ctx.fillStyle = 'rgba(0,240,255,.8)'; ctx.fillText(ln, x - off, y0 + off * .3);
+      ctx.restore();
+      stroke(ln, x, y0); ctx.fillStyle = q.color || '#fff'; ctx.fillText(ln, x, y0);
+      // faixa cortada deslocada
+      if (hash(j * 3.1) > .55) {
+        const sy = y0 - size * .5 + hash(j * 7.7) * size * .8, sh = size * .18;
+        ctx.save(); ctx.beginPath(); ctx.rect(x - size, sy, total + size * 2, sh); ctx.clip();
+        ctx.fillStyle = q.color || '#fff'; ctx.fillText(ln, x + (hash(j) - .5) * size * .6, y0); ctx.restore();
+      }
+      return;
+    }
+    if (mode === 'neon') {
+      ctx.save(); ctx.shadowColor = q.color || '#00E5FF'; ctx.shadowBlur = size * .6;
+      ctx.fillStyle = q.color || '#00E5FF'; ctx.fillText(ln, x, y0); ctx.shadowBlur = size * .25; ctx.fillStyle = '#FFFFFF'; ctx.globalAlpha *= .85; ctx.fillText(ln, x, y0); ctx.restore();
+      return;
+    }
+    const words = ln.split(' ');
+    for (let w = 0; w < words.length; w++) {
+      const word = words[w] + (w < words.length - 1 ? ' ' : '');
+      if (mode === 'words' || mode === 'none') {
+        const k = mode === 'none' ? 1 : clamp01((local - wi * .22) / .25);
+        if (k > 0) {
+          ctx.save(); const ww = ctx.measureText(word).width;
+          ctx.globalAlpha *= clamp01(k * 3);
+          ctx.translate(x + ww / 2, y0); const e = .4 + .6 * easeOutBack(k); ctx.scale(e, e); ctx.translate(-(x + ww / 2), -y0);
+          stroke(word, x, y0); ctx.fillStyle = q.color || '#fff'; ctx.fillText(word, x, y0); ctx.restore();
+        }
+        x += ctx.measureText(word).width; wi++;
+        continue;
+      }
+      for (const ch of word) {
+        const cw = ctx.measureText(ch).width;
+        ctx.save();
+        if (mode === 'letters') {
+          const k = clamp01((local - ci * .05) / .3);
+          ctx.globalAlpha *= clamp01(k * 3);
+          ctx.translate(x + cw / 2, y0); const e = easeOutBack(k); ctx.scale(e, e); ctx.translate(-(x + cw / 2), -y0);
+        } else if (mode === 'wave') {
+          ctx.translate(0, Math.sin(local * 6 - ci * .45) * size * .14);
+        }
+        stroke(ch, x, y0); ctx.fillStyle = q.color || '#fff'; ctx.fillText(ch, x, y0);
+        ctx.restore();
+        x += cw; ci++;
+      }
+      wi++;
+    }
+  });
 }
 
 function letters3d(ctx, lines, cx, cy, lh, size, q, local) {
@@ -1062,6 +1170,128 @@ DRAW.pip = (ctx, it, t, W, H, env) => {
   ctx.restore();
   return { x: cx - bw * sc / 2, y: cy - bh * sc / 2, w: bw * sc, h: bh * sc };
 };
+
+// ------------------------------------------------------------------ elementos extras (e_*)
+function starPath(ctx, x, y, r) { ctx.beginPath(); for (let k = 0; k < 10; k++) { const a = -Math.PI / 2 + k * Math.PI / 5, rr = k % 2 ? r * .45 : r; ctx.lineTo(x + rr * Math.cos(a), y + rr * Math.sin(a)); } ctx.closePath(); }
+Object.assign(DRAW, {
+  e_rating(ctx, it, t, W, H) {
+    const q = it.p, { a, b, local } = inOut(t, it); const r = U * .055 * (q.size || 1), gap = r * 2.4, cx = q.x * W, cy = q.y * H;
+    ctx.globalAlpha = b;
+    for (let i = 0; i < 5; i++) {
+      const x = cx + (i - 2) * gap, k = clamp01((local - .15 - i * .15) / .3), fill = clamp01((q.stars ?? 5) - i);
+      ctx.save(); ctx.translate(x, cy); ctx.scale(.3 + .7 * easeOutBack(k), .3 + .7 * easeOutBack(k)); ctx.translate(-x, -cy);
+      starPath(ctx, x, cy, r); ctx.fillStyle = 'rgba(120,120,130,.6)'; ctx.fill();
+      if (fill > 0 && k > 0) { ctx.save(); starPath(ctx, x, cy, r); ctx.clip(); ctx.fillStyle = q.color || '#FACC15'; ctx.fillRect(x - r, cy - r, 2 * r * fill, 2 * r); ctx.restore(); }
+      ctx.lineWidth = r * .12; ctx.strokeStyle = '#000'; starPath(ctx, x, cy, r); ctx.stroke(); ctx.restore();
+    }
+    if (q.text) { ctx.font = cssFont('Poppins', U * .045, 900); ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.lineWidth = U * .008; ctx.strokeStyle = '#000'; ctx.strokeText(q.text, cx, cy + r * 2); ctx.fillStyle = '#fff'; ctx.fillText(q.text, cx, cy + r * 2); }
+    return { x: cx - gap * 2.5, y: cy - r * 1.3, w: gap * 5, h: r * 3.6 };
+  },
+  e_pin(ctx, it, t, W, H) {
+    const q = it.p, { a, b } = inOut(t, it, .5); const r = U * .06, cx = q.x * W, cy = q.y * H;
+    const drop = (1 - easeOutBounce(a)) * H * .2;
+    ctx.globalAlpha = b;
+    ctx.fillStyle = 'rgba(0,0,0,.3)'; ctx.beginPath(); ctx.ellipse(cx, cy + r * .2, r * .6 * a, r * .2 * a, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.save(); ctx.translate(cx, cy - drop);
+    ctx.fillStyle = q.color || '#EF4444'; ctx.beginPath(); ctx.moveTo(0, 0); ctx.bezierCurveTo(-r * .4, -r * .6, -r, -r, -r, -r * 1.6); ctx.arc(0, -r * 1.6, r, Math.PI, 0); ctx.bezierCurveTo(r, -r, r * .4, -r * .6, 0, 0); ctx.fill();
+    ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(0, -r * 1.6, r * .4, 0, Math.PI * 2); ctx.fill(); ctx.restore();
+    if (q.text) {
+      const k = clamp01((t - it.start - .5) / .3);
+      ctx.globalAlpha = b * k; ctx.font = cssFont('Poppins', U * .04, 900);
+      const tw = ctx.measureText(q.text).width + U * .05;
+      ctx.fillStyle = 'rgba(0,0,0,.75)'; roundRect(ctx, cx - tw / 2, cy - r * 3.6 - U * .07, tw, U * .065, U * .03); ctx.fill();
+      ctx.fillStyle = '#fff'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(q.text, cx, cy - r * 3.6 - U * .037);
+    }
+    return { x: cx - r * 1.2, y: cy - r * 4.4, w: r * 2.4, h: r * 4.6 };
+  },
+  e_price(ctx, it, t, W, H) {
+    const q = it.p, { a, b, local } = inOut(t, it); const cx = q.x * W, cy = q.y * H, s = U * (q.size || .1);
+    ctx.globalAlpha = b;
+    ctx.save(); ctx.translate(cx, cy); ctx.rotate((-8 + Math.sin(local * 3) * 2) * Math.PI / 180); const sc = .3 + .7 * easeOutBack(a); ctx.scale(sc, sc);
+    ctx.font = cssFont('Anton', s, 400); const tw = Math.max(ctx.measureText(q.price || '').width, s * 2) + s * .8;
+    ctx.fillStyle = q.color || '#EF4444';
+    ctx.beginPath(); ctx.moveTo(-tw / 2 - s * .45, 0); ctx.lineTo(-tw / 2, -s * .75); ctx.lineTo(tw / 2, -s * .75); ctx.lineTo(tw / 2, s * .75); ctx.lineTo(-tw / 2, s * .75); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(-tw / 2 - s * .05, 0, s * .1, 0, Math.PI * 2); ctx.fill();
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillStyle = '#fff'; ctx.fillText(q.price || '', s * .1, s * .05);
+    if (q.old) { ctx.font = cssFont('Poppins', s * .32, 700); ctx.fillStyle = 'rgba(255,255,255,.85)'; ctx.fillText(q.old, s * .1, -s * .52); const ow = ctx.measureText(q.old).width; ctx.fillRect(s * .1 - ow / 2, -s * .53, ow, s * .04); }
+    ctx.restore();
+    return { x: cx - s * 2, y: cy - s, w: s * 4, h: s * 2 };
+  },
+  e_sparkles(ctx, it, t, W, H) {
+    const q = it.p, { b, local } = inOut(t, it); const cx = q.x * W, cy = q.y * H, R = U * (q.size || .25);
+    ctx.globalAlpha = b;
+    for (let i = 0; i < 14; i++) {
+      const ph = hash(i * 3.3) * 6.28, k = (Math.sin(local * (2 + hash(i) * 3) + ph) + 1) / 2;
+      const x = cx + Math.cos(i * 2.4) * R * hash(i + 1), y = cy + Math.sin(i * 2.4) * R * hash(i + 2), r = U * .02 * (.4 + k);
+      ctx.fillStyle = q.color || '#FFF7AE'; ctx.globalAlpha = b * k;
+      ctx.beginPath(); ctx.moveTo(x, y - r * 2); ctx.quadraticCurveTo(x, y, x + r * 2, y); ctx.quadraticCurveTo(x, y, x, y + r * 2); ctx.quadraticCurveTo(x, y, x - r * 2, y); ctx.quadraticCurveTo(x, y, x, y - r * 2); ctx.fill();
+    }
+    return { x: cx - R, y: cy - R, w: 2 * R, h: 2 * R };
+  },
+  e_subscribe(ctx, it, t, W, H) {
+    const q = it.p, { a, b, local } = inOut(t, it); const cx = q.x * W, cy = q.y * H, s = U * .06;
+    const done = local > 1.3;
+    ctx.globalAlpha = b;
+    ctx.save(); ctx.translate(cx, cy); const sc = (.4 + .6 * easeOutBack(a)) * (local > 1.15 && local < 1.35 ? .92 : 1); ctx.scale(sc, sc);
+    ctx.font = cssFont('Poppins', s * .75, 900); const label = done ? (q.done || 'INSCRITO ✓') : (q.text || 'INSCREVER-SE');
+    const tw = ctx.measureText(label).width + s * 1.4;
+    ctx.fillStyle = done ? '#3F3F46' : (q.color || '#FF0000'); roundRect(ctx, -tw / 2, -s * .75, tw, s * 1.5, s * .3); ctx.fill();
+    ctx.fillStyle = '#fff'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(label, 0, s * .03);
+    ctx.restore();
+    // cursor clicando
+    const k = clamp01((local - .5) / .6), mx = cx + s * 3 * (1 - easeOut(k)) + s * .6, my = cy + s * 2.2 * (1 - easeOut(k)) + s * .3;
+    if (local < 2.2) { ctx.save(); ctx.translate(mx, my); ctx.fillStyle = '#fff'; ctx.strokeStyle = '#000'; ctx.lineWidth = s * .08; ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(0, s * 1.1); ctx.lineTo(s * .3, s * .8); ctx.lineTo(s * .55, s * 1.25); ctx.lineTo(s * .72, s * 1.15); ctx.lineTo(s * .48, s * .72); ctx.lineTo(s * .85, s * .72); ctx.closePath(); ctx.fill(); ctx.stroke(); ctx.restore(); }
+    return { x: cx - s * 4, y: cy - s, w: s * 8, h: s * 2 };
+  },
+  e_loading(ctx, it, t, W, H) {
+    const q = it.p, { b, local } = inOut(t, it); const cx = q.x * W, cy = q.y * H, w = W * .7, hh = U * .04;
+    const k = clamp01(local / Math.max(.5, it.dur * .85));
+    ctx.globalAlpha = b;
+    ctx.font = cssFont('Poppins', U * .04, 900); ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.lineWidth = U * .008; ctx.strokeStyle = '#000'; ctx.strokeText(q.text || 'CARREGANDO...', cx, cy - hh * 1.4); ctx.fillStyle = '#fff'; ctx.fillText(q.text || 'CARREGANDO...', cx, cy - hh * 1.4);
+    ctx.fillStyle = 'rgba(0,0,0,.6)'; roundRect(ctx, cx - w / 2, cy - hh / 2, w, hh, hh / 2); ctx.fill();
+    ctx.fillStyle = q.color || '#22C55E'; roundRect(ctx, cx - w / 2 + 3, cy - hh / 2 + 3, Math.max(2, (w - 6) * k), hh - 6, hh / 2); ctx.fill();
+    ctx.fillStyle = '#fff'; ctx.font = cssFont('Poppins', U * .028, 900); ctx.fillText(Math.round(k * 100) + '%', cx, cy + hh * 1.3);
+    return { x: cx - w / 2, y: cy - hh * 2, w, h: hh * 4 };
+  },
+  e_underline(ctx, it, t, W, H) {
+    const q = it.p, { b, local } = inOut(t, it); const cx = q.x * W, cy = q.y * H, w = W * (q.w || .5);
+    const k = easeOut(clamp01(local / .45));
+    ctx.globalAlpha = b; ctx.strokeStyle = q.color || '#FFE600'; ctx.lineWidth = U * .014; ctx.lineCap = 'round';
+    ctx.beginPath();
+    for (let i = 0; i <= 40 * k; i++) { const u = i / 40, x = cx - w / 2 + w * u, y = cy + Math.sin(u * 9) * U * .006 + (u - .5) * U * .01; i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); }
+    ctx.stroke();
+    return { x: cx - w / 2, y: cy - U * .03, w, h: U * .06 };
+  },
+  e_check(ctx, it, t, W, H) {
+    const q = it.p, { a, b, local } = inOut(t, it); const cx = q.x * W, cy = q.y * H, s = U * (q.size || .18);
+    const ok = q.mode !== 'errado', col = q.color || (ok ? '#22C55E' : '#EF4444');
+    ctx.globalAlpha = b;
+    ctx.save(); ctx.translate(cx, cy); const sc = .4 + .6 * easeOutBack(a); ctx.scale(sc, sc);
+    ctx.fillStyle = col; ctx.beginPath(); ctx.arc(0, 0, s * .5, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = '#fff'; ctx.lineWidth = s * .1; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+    const k = easeOut(clamp01((local - .2) / .35));
+    ctx.beginPath();
+    if (ok) { const p = [[-s * .2, 0], [-s * .05, s * .15], [s * .22, -s * .15]]; ctx.moveTo(...p[0]); if (k < .4) ctx.lineTo(p[0][0] + (p[1][0] - p[0][0]) * k / .4, p[0][1] + (p[1][1] - p[0][1]) * k / .4); else { ctx.lineTo(...p[1]); const u = (k - .4) / .6; ctx.lineTo(p[1][0] + (p[2][0] - p[1][0]) * u, p[1][1] + (p[2][1] - p[1][1]) * u); } }
+    else { const d = s * .18; ctx.moveTo(-d, -d); ctx.lineTo(-d + 2 * d * Math.min(1, k * 2), -d + 2 * d * Math.min(1, k * 2)); if (k > .5) { const u = (k - .5) * 2; ctx.moveTo(d, -d); ctx.lineTo(d - 2 * d * u, -d + 2 * d * u); } }
+    ctx.stroke(); ctx.restore();
+    return { x: cx - s / 2, y: cy - s / 2, w: s, h: s };
+  },
+  e_typing(ctx, it, t, W, H) {
+    const q = it.p, { a, b, local } = inOut(t, it); const cx = q.x * W, cy = q.y * H, s = U * .05;
+    ctx.globalAlpha = b * clamp01(a * 2);
+    const showMsg = local > (q.wait || 1.5);
+    ctx.font = cssFont('Poppins', s * .8, 700);
+    const msg = q.text || 'Oi! Tudo bem?';
+    const w = showMsg ? Math.min(W * .8, ctx.measureText(msg).width + s * 1.4) : s * 3.4;
+    const x = q.side === 'direita' ? cx + W * .3 - w : cx - W * .3;
+    ctx.fillStyle = q.side === 'direita' ? '#22C55E' : '#E4E4E7'; roundRect(ctx, x, cy - s * .8, w, s * 1.6, s * .8); ctx.fill();
+    ctx.fillStyle = q.side === 'direita' ? '#fff' : '#111';
+    if (showMsg) { ctx.textAlign = 'left'; ctx.textBaseline = 'middle'; ctx.fillText(msg, x + s * .7, cy + s * .03); }
+    else for (let i = 0; i < 3; i++) { ctx.globalAlpha = b * (.35 + .65 * Math.max(0, Math.sin(local * 8 - i))); ctx.beginPath(); ctx.arc(x + s * (1 + i * .7), cy, s * .2, 0, Math.PI * 2); ctx.fill(); }
+    return { x, y: cy - s, w, h: s * 2 };
+  },
+});
 
 Object.assign(DRAW, CARTELA_DRAW, GRAFICO_DRAW, RETENCAO_DRAW);
 ELEMENTS.push(...RETENCAO_ELEMENTS, ...CARTELA_ELEMENTS, ...GRAFICO_ELEMENTS);

@@ -7,7 +7,7 @@ page.on('pageerror', e => console.log('pageerror:', e.message));
 await page.goto('http://localhost:8080/test/asr.html');
 await page.waitForFunction('window.READY');
 let ok = true;
-for (const model of ['rapida', 'precisa']) {
+for (const model of ['relampago', 'rapida', 'precisa']) {
   try {
     const r = await page.evaluate(m => window.run(m), model);
     const text = r.words.map(w => `${w.w}@${w.s.toFixed(1)}`).join(' ');

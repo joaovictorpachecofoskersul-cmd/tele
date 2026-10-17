@@ -10,11 +10,12 @@ env.backends.onnx.wasm.wasmPaths = {
 
 // rapida: Whisper base (~100 MB) ; precisa: Whisper small (~250 MB)
 export const MODELS = {
+  relampago: { id: 'Xenova/whisper-tiny', revision: 'output_attentions' },
   rapida: { id: 'Xenova/whisper-base', revision: 'output_attentions' },
   precisa: { id: 'onnx-community/whisper-small_timestamped', revision: 'main' },
 };
 
-let asr = null, loadedKey = null, configured = false;
+let asr = null, loadedKey = null, configured = false, usedDevice = 'wasm';
 
 function configure(threads) {
   if (configured) return;
@@ -23,15 +24,16 @@ function configure(threads) {
   configured = true;
 }
 
-async function load(key) {
-  if (asr && loadedKey === key) return asr;
+async function load(key, device = 'wasm') {
+  if (asr && loadedKey === key + ':' + device) return asr;
   const m = MODELS[key] || MODELS.rapida;
   const files = {};
   let announced = false;
   asr = await pipeline('automatic-speech-recognition', m.id, {
     revision: m.revision,
-    device: 'wasm',
-    dtype: { encoder_model: 'q8', decoder_model_merged: 'q8' },
+    device,
+    // placa de vídeo (WebGPU): encoder em fp32 e decoder leve; processador: tudo em q8
+    dtype: device === 'webgpu' ? { encoder_model: 'fp32', decoder_model_merged: 'q4' } : { encoder_model: 'q8', decoder_model_merged: 'q8' },
     progress_callback: p => {
       if (p.status === 'progress' && p.file) {
         files[p.file] = { loaded: p.loaded || 0, total: p.total || 0 };
@@ -44,7 +46,8 @@ async function load(key) {
       }
     },
   });
-  loadedKey = key;
+  loadedKey = key + ':' + device;
+  usedDevice = device;
   return asr;
 }
 
@@ -53,9 +56,9 @@ onmessage = async e => {
   try {
     if (m.type === 'config') { configure(m.threads); postMessage({ type: 'config', id: m.id, threads: env.backends.onnx.wasm.numThreads, isolated: !!self.crossOriginIsolated }); return; }
     configure();
-    if (m.type === 'load') { postMessage({ type: 'stage', stage: 'loading' }); await load(m.model); postMessage({ type: 'ready', id: m.id }); return; }
+    if (m.type === 'load') { postMessage({ type: 'stage', stage: 'loading' }); await load(m.model, m.device); postMessage({ type: 'ready', id: m.id, device: usedDevice }); return; }
     if (m.type === 'chunk') {
-      const a = await load(m.model);
+      const a = await load(m.model, m.device);
       postMessage({ type: 'stage', stage: 'running' });
       const out = await a(m.audio, { language: m.lang || 'portuguese', task: 'transcribe', return_timestamps: 'word' });
       const words = (out.chunks || []).map(c => ({ w: String(c.text || '').trim(), s: c.timestamp[0], e: c.timestamp[1] }))

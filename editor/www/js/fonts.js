@@ -12,6 +12,10 @@ const LIST = [
   ['Permanent Marker', 'permanent-marker-latin-400-normal', '400'],
   ['Montserrat', 'montserrat-latin-900-normal', '900'],
   ['Courier Prime', 'courier-prime-latin-700-normal', '700'],
+  ['Bangers', 'bangers-latin-400-normal', '400'],
+  ['Pacifico', 'pacifico-latin-400-normal', '400'],
+  ['Oswald', 'oswald-latin-700-normal', '700'],
+  ['Lilita One', 'lilita-one-latin-400-normal', '400'],
 ];
 
 export const FONT_CHOICES = [
@@ -21,6 +25,10 @@ export const FONT_CHOICES = [
   { id: 'Montserrat', name: 'Montserrat', weight: 900 },
   { id: 'Permanent Marker', name: 'Pincel', weight: 400 },
   { id: 'Courier Prime', name: 'Máquina', weight: 700 },
+  { id: 'Bangers', name: 'Gibi', weight: 400 },
+  { id: 'Pacifico', name: 'Manuscrita', weight: 400 },
+  { id: 'Oswald', name: 'Oswald', weight: 700 },
+  { id: 'Lilita One', name: 'Redonda', weight: 400 },
 ];
 
 export function fontWeight(family, want) {

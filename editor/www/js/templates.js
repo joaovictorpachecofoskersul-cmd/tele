@@ -15,7 +15,7 @@ const items = {
 
 export const TEMPLATES = [
   {
-    id: 'brasileirando', name: 'Brasileirando', desc: 'Gancho de 5 s (manchete, moldura pulsando, "ESPERA O FINAL", pílula SEGUE O PERFIL), rebobinar, legenda karaokê amarela e vermelha, tinta nos cortes e card final DIA 25 É LULA 13.',
+    id: 'brasileirando', name: 'Viral com gancho', desc: 'Gancho de 5 s (manchete, moldura pulsando, "ESPERA O FINAL", pílula SEGUE O PERFIL), rebobinar, legenda karaokê amarela e vermelha, tinta nos cortes e card final com chamada.',
     format: '9:16', colors: ['#FFDE00', '#EB1E28'],
     captions: { on: true, style: 'karaoke', maxWords: 3, x: .5, y: .7, size: 1.05, color: '#FFFFFF', active: '#FFDE00', strong: '#EB1E28', font: 'Poppins', upper: true, star: false },
     trans: ['ink', 'zoompunch', 'whipL', 'flash'],
@@ -31,36 +31,36 @@ export const TEMPLATES = [
         out.push({ kind: 'r_cta', start: 0, dur: g, p: { text: 'SEGUE O PERFIL', sub: 'E ASSISTE ATÉ O FIM', color: '#EB1E28', x: .5, y: .84 } });
       }
       if (L.total > 12) out.push({ kind: 'effect', start: g - .6, dur: .6, p: { fx: 'rewind', i: .8, span: Math.max(1, g - .6) } });
-      if (o.outro && L.total > 7) out.push({ kind: 'c_final', start: L.total - 3.2, dur: 3.2, p: { bg: 'escuro', fonte: '', speed: 1, l1: 'DIA 25 É', l2: 'LULA 13', cta1: 'COMENTA O QUE ACHOU', cta2: 'SEGUE O PERFIL', pillColor: '#EB1E28' } });
+      if (o.outro && L.total > 7) out.push({ kind: 'c_final', start: L.total - 3.2, dur: 3.2, p: { bg: 'escuro', fonte: '', speed: 1, l1: 'SUA FRASE', l2: 'FORTE AQUI', cta1: 'COMENTA O QUE ACHOU', cta2: 'SEGUE O PERFIL', pillColor: '#EB1E28' } });
       return out;
     },
   },
   {
-    id: 'boralula', name: 'BORA LULA', desc: 'Cabeçalho BORA LULA, legenda palavra por palavra com a estrelinha vermelha pulando, transições agressivas e card final LULA 13 com confete.',
+    id: 'boralula', name: 'Campanha com estrela', desc: 'Cabeçalho fixo, legenda com a estrelinha vermelha pulando, transições agressivas e card final com confete.',
     format: '9:16', colors: ['#EB1E28', '#FFDE00'],
     captions: { on: true, style: 'karaoke', maxWords: 2, x: .5, y: .68, size: 1.15, color: '#FFFFFF', active: '#FFDE00', strong: '#EB1E28', font: 'Anton', upper: true, star: false, marker: { ...defaultMarker(), on: true, type: 'star', color: '#EB1E28' } },
     trans: ['zoompunch', 'glitch', 'whipL', 'shake', 'rgbsplit', 'flash'],
     audio: { beat: { on: true, bpm: 128, vol: .2, style: 'funk' }, sfxAuto: true, duck: true },
     build: (L, o) => [
-      { kind: 'pill', start: 0, dur: L.total, p: { text: 'BORA LULA', bg: '#EB1E28', color: '#FFFFFF', x: .5, y: .06, size: .045 } },
+      { kind: 'pill', start: 0, dur: L.total, p: { text: o.handle || 'SEU TEMA AQUI', bg: '#EB1E28', color: '#FFFFFF', x: .5, y: .06, size: .045 } },
       { kind: 'effect', start: 0, dur: .5, p: { fx: 'zoompunch', i: .8 } },
       ...(o.title ? [{ kind: 'text', start: 0, dur: 3, p: { text: o.title, font: 'Anton', size: .09, color: '#FFDE00', stroke: '#000000', bg: '', x: .5, y: .22, anim: 'pop', upper: true } }] : []),
-      ...(o.outro && L.total > 6 ? [{ kind: 'card', start: L.total - 3, dur: 3, p: { title: 'LULA 13', sub: '25 DE OUTUBRO · VOTE 13', bg: '#EB1E28', bg2: '#7F0A10', color: '#FFFFFF', confetti: true, comment: 'COMENTA: 13' } }] : []),
+      ...(o.outro && L.total > 6 ? [{ kind: 'card', start: L.total - 3, dur: 3, p: { title: o.title || 'SUA MENSAGEM', sub: 'COMPARTILHE', bg: '#EB1E28', bg2: '#7F0A10', color: '#FFFFFF', confetti: true, comment: 'COMENTA AQUI' } }] : []),
     ],
   },
   {
-    id: 'forum', name: 'Fórum com Lula (liderança)', desc: 'Para depoimento de liderança: nome e cargo na faixa, legenda limpa sem nada no rosto, cortes suaves e card final do Fórum.',
+    id: 'forum', name: 'Liderança / entrevista', desc: 'Para depoimento de liderança: nome e cargo na faixa, legenda limpa sem nada no rosto, cortes suaves e card final.',
     format: '9:16', colors: ['#B91C1C', '#FDE68A'],
     captions: { on: true, style: 'karaoke', maxWords: 3, x: .5, y: .78, size: .95, color: '#FFFFFF', active: '#FFDE00', strong: '#EB1E28', font: 'Poppins', upper: true, star: false },
     trans: ['fade', 'dip', 'leak'],
     audio: { beat: { on: true, bpm: 92, vol: .18, style: 'calmo' }, sfxAuto: false, duck: true },
     build: (L, o) => [
       { kind: 'lower', start: .6, dur: Math.min(5, L.total - .6), p: { name: o.handle || 'NOME DA LIDERANÇA', role: o.title || 'Cargo · Entidade', color: '#EB1E28', x: .05, y: .62 } },
-      ...(o.outro && L.total > 6 ? [{ kind: 'c_final', start: L.total - 3.2, dur: 3.2, p: { bg: 'escuro', fonte: '', speed: 1, l1: 'FÓRUM', l2: 'COM LULA', cta1: 'EU VOTO NO LULA', cta2: 'SEGUE O PERFIL', pillColor: '#EB1E28' } }] : []),
+      ...(o.outro && L.total > 6 ? [{ kind: 'c_final', start: L.total - 3.2, dur: 3.2, p: { bg: 'escuro', fonte: '', speed: 1, l1: 'OBRIGADO', l2: 'PELA PARTICIPAÇÃO', cta1: 'COMPARTILHE', cta2: 'SEGUE O PERFIL', pillColor: '#EB1E28' } }] : []),
     ],
   },
   {
-    id: 'audioviral', name: 'Áudio viral com cartelas', desc: 'Para áudio sobre fundo escuro ou cenas em preto e branco: gancho "O ÁUDIO QUE ESTÁ VIRANDO VOTOS", "OUVE ATÉ O FIM" piscando, tinta nos cortes e card final. Use "+ cartela" na legenda para as datas.',
+    id: 'audioviral', name: 'Áudio viral com cartelas', desc: 'Para áudio sobre fundo escuro ou cenas em preto e branco: gancho "O ÁUDIO QUE TODO MUNDO PRECISA OUVIR", "OUVE ATÉ O FIM" piscando, tinta nos cortes e card final. Use "+ cartela" na legenda para as datas.',
     format: '9:16', colors: ['#111111', '#FFDE00'],
     captions: { on: true, style: 'karaoke', maxWords: 3, x: .5, y: .72, size: 1.05, color: '#FFFFFF', active: '#FFDE00', strong: '#EB1E28', font: 'Poppins', upper: true, star: false },
     trans: ['ink', 'dip', 'ink', 'flash'],
@@ -68,12 +68,12 @@ export const TEMPLATES = [
     audio: { beat: { on: false }, sfxAuto: true, duck: true },
     build: (L, o) => {
       const g = Math.min(5, L.total * .45);
-      const [l1, l2] = splitTitle(o.title || 'O ÁUDIO QUE ESTÁ / VIRANDO VOTOS');
+      const [l1, l2] = splitTitle(o.title || 'O ÁUDIO QUE TODO MUNDO / PRECISA OUVIR');
       return [
         { kind: 'r_headline', start: 0, dur: g, p: { tag: o.handle || 'OUÇA', l1, l2, tagColor: '#EB1E28', color2: '#FFDE00', alpha: .85, x: .5, y: .1 } },
         { kind: 'r_blink', start: .4, dur: g - .4, p: { text: 'OUVE ATÉ O FIM', size: .045, hz: 3, color: '#FFFFFF', bg: '#EB1E28', x: .5, y: .3 } },
         ...(L.total > 6 ? [{ kind: 'r_cta', start: 0, dur: g, p: { text: 'SEGUE O PERFIL', sub: 'E COMPARTILHA', color: '#EB1E28', x: .5, y: .86 } }] : []),
-        ...(o.outro && L.total > 7 ? [{ kind: 'c_final', start: L.total - 3.2, dur: 3.2, p: { bg: 'escuro', fonte: '', speed: 1, l1: 'DIA 25 É', l2: 'LULA 13', cta1: 'MANDA PRA 3 PESSOAS', cta2: 'SEGUE O PERFIL', pillColor: '#EB1E28' } }] : []),
+        ...(o.outro && L.total > 7 ? [{ kind: 'c_final', start: L.total - 3.2, dur: 3.2, p: { bg: 'escuro', fonte: '', speed: 1, l1: 'SUA FRASE', l2: 'FORTE AQUI', cta1: 'MANDA PRA 3 PESSOAS', cta2: 'SEGUE O PERFIL', pillColor: '#EB1E28' } }] : []),
       ];
     },
   },
@@ -191,7 +191,7 @@ export const TEMPLATES = [
     ],
   },
   {
-    id: 'aula', name: 'Minicurso / Aula animada', desc: 'O estilo dos minicursos: verde e amarelo, card de módulo na abertura com vinheta, fundo animado, legenda karaokê e trilha animada.',
+    id: 'aula', name: 'Aula animada', desc: 'Verde e amarelo, card de módulo na abertura com vinheta, fundo animado, legenda karaokê e trilha animada.',
     format: '16:9', colors: ['#173B32', '#F0B429'],
     captions: { on: true, style: 'karaoke', maxWords: 5, x: .5, y: .86, size: .9, color: '#FFFFFF', active: '#F0B429', strong: '#F0B429', font: 'Poppins', upper: false, star: false },
     trans: ['fade', 'whipL'],

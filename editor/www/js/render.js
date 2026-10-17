@@ -67,8 +67,8 @@ export class Renderer {
     const c = p.clips[req.ci];
     const fr = await provider.frame(req.ci, req.src, slot);
     let src;
-    if (fr && fr.source) src = eng.upload('src' + slot, fr.source, fr.w, fr.h);
-    else src = eng.texs.get('src' + slot) || eng.black;
+    if (fr && fr.source) { src = eng.upload('src' + slot, fr.source, fr.w, fr.h); src.owner = p.id; }
+    else { const old = eng.texs.get('src' + slot); src = old && old.owner === p.id ? old : eng.black; }   // quadro de outro projeto nunca aparece
     const lt = t - L.starts[req.ci];
     const local = Math.max(0, Math.min(1, lt / clipDur(c)));
     // keyframes do enquadramento

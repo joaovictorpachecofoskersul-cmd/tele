@@ -8,10 +8,25 @@ export const SFX_LIST = [
   { id: 'tique', name: 'Tique-taque' }, { id: 'carimbo', name: 'Carimbo' }, { id: 'ding', name: 'Ding' },
   { id: 'riser', name: 'Subida (tensão)' }, { id: 'digitar', name: 'Digitação' }, { id: 'erro', name: 'Erro (buzzer)' },
   { id: 'palmas', name: 'Palmas' }, { id: 'clique', name: 'Clique de mouse' }, { id: 'vinheta', name: 'Vinheta de abertura' }, { id: 'notificacao', name: 'Notificação' },
+  { id: 'swoosh2', name: 'Swoosh rápido' }, { id: 'swipeup', name: 'Deslizar para cima' }, { id: 'zoomin', name: 'Zoom (aproximar)' }, { id: 'reverse', name: 'Rebobinar' },
+  { id: 'trovao', name: 'Trovão' }, { id: 'tambor', name: 'Rufar de tambor' }, { id: 'tadah', name: 'Tcharam!' }, { id: 'sino', name: 'Sino' },
+  { id: 'moeda', name: 'Moeda / dinheiro' }, { id: 'caixa', name: 'Caixa registradora' }, { id: 'acerto', name: 'Acerto (certo)' }, { id: 'errou', name: 'Errou (triste)' },
+  { id: 'suspense', name: 'Suspense grave' }, { id: 'batida', name: 'Batida do coração' }, { id: 'bolha', name: 'Bolha' }, { id: 'mola', name: 'Mola (boing)' },
+  { id: 'laser', name: 'Laser' }, { id: 'apito', name: 'Apito' }, { id: 'buzina', name: 'Buzina' }, { id: 'sirene', name: 'Sirene' },
+  { id: 'scratch', name: 'Arranhão de disco' }, { id: 'bip', name: 'Bip (censura)' }, { id: 'risada', name: 'Risada (plateia)' }, { id: 'uau', name: 'Uau (plateia)' },
+  { id: 'gota', name: 'Gota' }, { id: 'passos', name: 'Passos' },
+];
+// grupos para achar fácil
+export const SFX_GROUPS = [
+  { name: 'Transição', ids: ['whoosh', 'swoosh2', 'swipeup', 'zoomin', 'reverse', 'riser', 'glitch', 'rasgo', 'scratch'] },
+  { name: 'Impacto', ids: ['boom', 'impacto', 'trovao', 'carimbo', 'vidro', 'suspense', 'batida', 'tambor'] },
+  { name: 'Interface', ids: ['pop', 'clique', 'notificacao', 'ding', 'bip', 'digitar', 'camera', 'bolha', 'gota'] },
+  { name: 'Engraçado', ids: ['mola', 'risada', 'uau', 'errou', 'buzina', 'apito', 'laser', 'palmas'] },
+  { name: 'Resultado', ids: ['tadah', 'acerto', 'erro', 'moeda', 'caixa', 'sino', 'vinheta', 'tique', 'sirene', 'chiado', 'passos'] },
 ];
 
 // som automático de alguns elementos
-export const ELEMENT_SFX = { stamp: 'carimbo', counter: 'tique', censor: 'erro', card: 'boom', emoji: 'pop', circle: 'whoosh', arrow: 'pop', lower: 'whoosh', follow: 'pop', bubble: 'pop', pill: 'pop', checklist: 'pop', people: 'pop', map: 'whoosh', bars: 'whoosh', module: 'whoosh', like: 'pop', click: 'clique', tap: 'pop', bell: 'notificacao', notif: 'notificacao', swipe: 'whoosh', comment: 'pop', poll: 'pop', share: 'whoosh',
+export const ELEMENT_SFX = { e_rating: 'acerto', e_pin: 'pop', e_price: 'moeda', e_subscribe: 'clique', e_check: 'acerto', e_typing: 'notificacao', e_underline: 'swoosh2', g_hbars: 'whoosh', g_gauge: 'whoosh', g_icons: 'pop', g_change: 'whoosh', g_stack: 'whoosh', g_race: 'whoosh', stamp: 'carimbo', counter: 'tique', censor: 'erro', card: 'boom', emoji: 'pop', circle: 'whoosh', arrow: 'pop', lower: 'whoosh', follow: 'pop', bubble: 'pop', pill: 'pop', checklist: 'pop', people: 'pop', map: 'whoosh', bars: 'whoosh', module: 'whoosh', like: 'pop', click: 'clique', tap: 'pop', bell: 'notificacao', notif: 'notificacao', swipe: 'whoosh', comment: 'pop', poll: 'pop', share: 'whoosh',
   c_year: 'tique', c_period: 'whoosh', c_date: 'boom', c_timeline: 'whoosh', c_two: 'pop', c_list: 'pop', c_phrase: 'impacto', c_quote: 'whoosh', c_final: 'boom',
   g_vbars: 'whoosh', g_line: 'whoosh', g_pie: 'whoosh', g_ring: 'whoosh', g_poll: 'whoosh', g_versus: 'whoosh', g_table: 'whoosh', g_countdown: 'tique', g_odometer: 'tique',
   r_cta: 'pop', r_headline: 'whoosh', r_nametag: 'pop' };
@@ -158,6 +173,111 @@ export function sfx(type) {
         if (t >= 0.85) { const tt = t - 0.85; for (const f of notes) v += Math.sin(2 * Math.PI * f * tt) * Math.exp(-tt * 2.2) * 0.22 * Math.min(1, tt * 200); v += Math.sin(2 * Math.PI * 65 * tt) * Math.exp(-tt * 5) * 0.6; }
         a[i] = v;
       } break;
+    }
+    case 'swoosh2': {
+      a = buf(0.32); const f = new Biquad('bp', 800, 1.5);
+      for (let i = 0; i < a.length; i++) { const t = i / a.length; f.set('bp', 600 + 6000 * t, 1.5); a[i] = f.run(r()) * Math.sin(Math.PI * t) ** 2; } break;
+    }
+    case 'swipeup': {
+      a = buf(0.4); let ph = 0; const f = new Biquad('bp', 1000, 2);
+      for (let i = 0; i < a.length; i++) { const t = i / a.length; ph += 2 * Math.PI * (300 + 1500 * t) / SR; f.set('bp', 500 + 4000 * t, 2); a[i] = (Math.sin(ph) * 0.4 + f.run(r()) * 0.8) * Math.sin(Math.PI * t); } break;
+    }
+    case 'zoomin': {
+      a = buf(0.7); let ph = 0; const f = new Biquad('lp', 400);
+      for (let i = 0; i < a.length; i++) { const t = i / a.length; ph += 2 * Math.PI * (80 + 500 * t * t) / SR; f.set('lp', 300 + 6000 * t * t); a[i] = (Math.sin(ph) * 0.6 + f.run(r()) * 0.6) * (t < 0.9 ? t : (1 - t) * 9); } break;
+    }
+    case 'reverse': {
+      a = buf(0.9); const hp = new Biquad('hp', 600);
+      for (let i = 0; i < a.length; i++) { const t = i / a.length; const w = Math.sin(2 * Math.PI * (40 * t + 12 * t * t)); a[i] = hp.run(r()) * (0.3 + 0.7 * Math.abs(w)) * Math.sin(Math.PI * t) + Math.sin(2 * Math.PI * (220 - 160 * t) * t * 3) * 0.3 * Math.sin(Math.PI * t); } break;
+    }
+    case 'trovao': {
+      a = buf(2.4); const lp = new Biquad('lp', 300); const lp2 = new Biquad('lp', 1200);
+      for (let i = 0; i < a.length; i++) { const t = i / SR; a[i] = lp.run(r()) * 3 * Math.exp(-t * 1.4) * (0.6 + 0.4 * Math.sin(t * 13)) + lp2.run(r()) * Math.exp(-t * 18) * 1.5; } break;
+    }
+    case 'tambor': {
+      a = buf(2.0); const bp = new Biquad('bp', 220, 1.2);
+      for (let i = 0; i < a.length; i++) { const t = i / SR; const k = t % 0.045; const cr = t < 1.7 ? 0.3 + 0.7 * t / 1.7 : Math.exp(-(t - 1.7) * 15); a[i] = bp.run(r()) * Math.exp(-k * 90) * cr + (t > 1.7 ? Math.sin(2 * Math.PI * 70 * (t - 1.7)) * Math.exp(-(t - 1.7) * 9) : 0); } break;
+    }
+    case 'tadah': {
+      a = buf(1.6); const ch = [[523.25, 659.25, 783.99], [698.46, 880, 1046.5]];
+      for (let i = 0; i < a.length; i++) { const t = i / SR; const set = t < 0.18 ? ch[0] : ch[1]; const tt = t < 0.18 ? t : t - 0.18; let v = 0; for (const f of set) v += (Math.sign(Math.sin(2 * Math.PI * f * t)) * 0.3 + Math.sin(2 * Math.PI * f * t)) * 0.25; a[i] = v * Math.exp(-tt * (t < 0.18 ? 6 : 2)) * Math.min(1, tt * 300); } break;
+    }
+    case 'sino': {
+      a = buf(2.5); const fs = [880, 1760 * 1.01, 2640 * 1.02, 3520 * 0.99];
+      for (let i = 0; i < a.length; i++) { const t = i / SR; let v = 0; fs.forEach((f, k) => { v += Math.sin(2 * Math.PI * f * t) * Math.exp(-t * (1.2 + k)) / (k + 1); }); a[i] = v * Math.min(1, t * 500); } break;
+    }
+    case 'moeda': {
+      a = buf(0.7);
+      for (let i = 0; i < a.length; i++) { const t = i / SR; const f = t < 0.08 ? 988 : 1319; const tt = t < 0.08 ? t : t - 0.08; a[i] = Math.sign(Math.sin(2 * Math.PI * f * t)) * 0.35 * Math.exp(-tt * 6); } break;
+    }
+    case 'caixa': {
+      a = buf(1.2); const hp = new Biquad('hp', 2500);
+      for (let i = 0; i < a.length; i++) { const t = i / SR; a[i] = hp.run(r()) * Math.exp(-t * 40) * 0.8 + (t > 0.12 ? (Math.sin(2 * Math.PI * 2093 * t) + Math.sin(2 * Math.PI * 2637 * t)) * 0.3 * Math.exp(-(t - 0.12) * 3) : 0); } break;
+    }
+    case 'acerto': {
+      a = buf(0.6);
+      for (let i = 0; i < a.length; i++) { const t = i / SR; const f = t < 0.1 ? 880 : 1318; const tt = t < 0.1 ? t : t - 0.1; a[i] = Math.sin(2 * Math.PI * f * t) * Math.exp(-tt * 7) * Math.min(1, tt * 300); } break;
+    }
+    case 'errou': {
+      a = buf(1.6); const nts = [392, 370, 349, 330];
+      for (let i = 0; i < a.length; i++) { const t = i / SR; const k = Math.min(3, Math.floor(t / 0.35)); const tt = t - k * 0.35; const vib = k === 3 ? Math.sin(t * 30) * 6 : 0; a[i] = (Math.sign(Math.sin(2 * Math.PI * (nts[k] + vib) * t)) * 0.3 + Math.sin(2 * Math.PI * nts[k] * t) * 0.5) * Math.exp(-tt * (k === 3 ? 1.5 : 4)); } break;
+    }
+    case 'suspense': {
+      a = buf(2.5); const lp = new Biquad('lp', 200);
+      for (let i = 0; i < a.length; i++) { const t = i / SR; a[i] = (Math.sin(2 * Math.PI * 55 * t) + Math.sin(2 * Math.PI * 58.3 * t) + lp.run(r()) * 2) * Math.min(1, t * 2) * Math.exp(-Math.max(0, t - 1.8) * 4) * 0.4; } break;
+    }
+    case 'batida': {
+      a = buf(1.6);
+      for (let i = 0; i < a.length; i++) { const t = i / SR; let v = 0; for (const h of [0, 0.22, 0.8, 1.02]) if (t >= h) { const tt = t - h; v += Math.sin(2 * Math.PI * (55 + 40 * Math.exp(-tt * 30)) * tt) * Math.exp(-tt * 14); } a[i] = v; } break;
+    }
+    case 'bolha': {
+      a = buf(0.25); let ph = 0;
+      for (let i = 0; i < a.length; i++) { const t = i / SR; ph += 2 * Math.PI * (400 + 1800 * t / 0.25) / SR; a[i] = Math.sin(ph) * Math.exp(-t * 18) * Math.min(1, t * 400); } break;
+    }
+    case 'mola': {
+      a = buf(0.9); let ph = 0;
+      for (let i = 0; i < a.length; i++) { const t = i / SR; ph += 2 * Math.PI * (220 + 160 * Math.sin(t * 40) * Math.exp(-t * 3)) / SR; a[i] = Math.sin(ph) * Math.exp(-t * 3.5); } break;
+    }
+    case 'laser': {
+      a = buf(0.35); let ph = 0;
+      for (let i = 0; i < a.length; i++) { const t = i / SR; ph += 2 * Math.PI * (2400 * Math.exp(-t * 9) + 200) / SR; a[i] = Math.sign(Math.sin(ph)) * 0.35 * Math.exp(-t * 6); } break;
+    }
+    case 'apito': {
+      a = buf(0.9);
+      for (let i = 0; i < a.length; i++) { const t = i / SR; const f = 2800 + 120 * Math.sin(t * 2 * Math.PI * 28); a[i] = Math.sin(2 * Math.PI * f * t) * (t < 0.8 ? Math.min(1, t * 50) : (0.9 - t) * 10) * 0.6; } break;
+    }
+    case 'buzina': {
+      a = buf(0.8);
+      for (let i = 0; i < a.length; i++) { const t = i / SR; a[i] = (Math.sign(Math.sin(2 * Math.PI * 415 * t)) + Math.sign(Math.sin(2 * Math.PI * 523 * t))) * 0.25 * (t < 0.7 ? Math.min(1, t * 80) : (0.8 - t) * 10); } break;
+    }
+    case 'sirene': {
+      a = buf(2.4); let ph = 0;
+      for (let i = 0; i < a.length; i++) { const t = i / SR; ph += 2 * Math.PI * (700 + 400 * Math.sin(2 * Math.PI * 1.2 * t)) / SR; a[i] = Math.sin(ph) * 0.5 * Math.min(1, t * 20) * Math.min(1, (2.4 - t) * 10); } break;
+    }
+    case 'scratch': {
+      a = buf(0.5); const bp = new Biquad('bp', 1000, 2);
+      for (let i = 0; i < a.length; i++) { const t = i / a.length; const sp = Math.sin(t * Math.PI * 3); bp.set('bp', 400 + 2500 * Math.abs(sp), 3); a[i] = bp.run(r()) * Math.abs(sp) * 1.4; } break;
+    }
+    case 'bip': {
+      a = buf(0.6);
+      for (let i = 0; i < a.length; i++) { const t = i / SR; a[i] = Math.sin(2 * Math.PI * 1000 * t) * 0.6 * Math.min(1, t * 300) * Math.min(1, (0.6 - t) * 300); } break;
+    }
+    case 'risada': {
+      a = buf(2.2); const bp = new Biquad('bp', 700, 1); const voices = [];
+      for (let v = 0; v < 14; v++) voices.push({ f: 4 + (r() + 1) * 2.5, o: (r() + 1) * 3, d: (r() + 1) * 0.4 });
+      for (let i = 0; i < a.length; i++) { const t = i / SR; let e = 0; for (const v of voices) if (t > v.d) e += Math.max(0, Math.sin(2 * Math.PI * v.f * t + v.o)) ** 3; a[i] = bp.run(r()) * e * Math.min(1, t * 3) * Math.exp(-Math.max(0, t - 1.4) * 3) * 0.3; } break;
+    }
+    case 'uau': {
+      a = buf(1.8); const bp = new Biquad('bp', 500, 1.5);
+      for (let i = 0; i < a.length; i++) { const t = i / SR; bp.set('bp', 400 + 600 * Math.sin(Math.PI * Math.min(1, t / 1.2)), 1.5); a[i] = bp.run(r()) * Math.sin(Math.PI * Math.min(1, t / 1.8)) * 1.5; } break;
+    }
+    case 'gota': {
+      a = buf(0.3); let ph = 0;
+      for (let i = 0; i < a.length; i++) { const t = i / SR; ph += 2 * Math.PI * (1400 * Math.exp(-t * 20) + 600) / SR; a[i] = Math.sin(ph) * Math.exp(-t * 22); } break;
+    }
+    case 'passos': {
+      a = buf(1.8); const lp = new Biquad('lp', 500);
+      for (let i = 0; i < a.length; i++) { const t = i / SR; const k = t % 0.45; a[i] = lp.run(r()) * Math.exp(-k * 35) * 2.2 * (t < 1.8 ? 1 : 0); } break;
     }
     default: a = buf(0.05);
   }

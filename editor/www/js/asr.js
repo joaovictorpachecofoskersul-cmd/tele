@@ -7,6 +7,7 @@ const pending = new Map();
 let listeners = { download: null, stage: null };
 
 export const ASR_MODELS = [
+  { id: 'relampago', name: 'Relâmpago (40 MB)', speed: 0.35 },
   { id: 'rapida', name: 'Rápida (100 MB)', speed: 0.9 },
   { id: 'precisa', name: 'Precisa (250 MB, mais lenta)', speed: 3 },
 ];
@@ -55,80 +56,135 @@ export function cancelTranscription() { cancelled = true; killWorker(); }
 
 const HALLU = /(amara\.org|legendas pela comunidade|legendado por|inscreva-se no canal|obrigado por assistir|tradução e legendas|subtitles by)/i;
 
-// mono: Float32Array 16 kHz ; env: dB a cada 20 ms
-export async function transcribe(mono, env, { model = 'rapida', onProgress, onDownload, onStage } = {}) {
+// trechos com voz (a partir do envelope em dB a cada 20 ms), limitados às faixas pedidas
+function voiced(env, total, ranges, floor) {
+  const thr = floor + 7, F = 0.02;
+  const segs = [];
+  for (const [ra, rb] of ranges) {
+    let start = null, quiet = 0;
+    const k0 = Math.max(0, Math.floor(ra / F)), k1 = Math.min(env.length, Math.ceil(rb / F));
+    for (let k = k0; k < k1; k++) {
+      const on = (env[k] ?? -200) > thr;
+      if (on) { if (start == null) start = k; quiet = 0; }
+      else if (start != null && ++quiet > 30) { segs.push([start * F, (k - quiet + 1) * F]); start = null; quiet = 0; }
+    }
+    if (start != null) segs.push([start * F, Math.min(rb, k1 * F)]);
+  }
+  // folga de 0,25 s em cada lado e junta trechos muito próximos
+  const out = [];
+  for (const [x, y] of segs) {
+    const a = Math.max(0, x - 0.25), b = Math.min(total, y + 0.25);
+    if (out.length && a - out[out.length - 1][1] < 0.4) out[out.length - 1][1] = Math.max(out[out.length - 1][1], b);
+    else out.push([a, b]);
+  }
+  return out.filter(([x, y]) => y - x > 0.2);
+}
+
+// Monta pedaços de até ~28 s só com fala (as pausas longas ficam de fora: o Whisper trabalha menos)
+function packChunks(segs, maxLen = 28) {
+  const chunks = [];
+  let cur = null;
+  const push = () => { if (cur && cur.parts.length) chunks.push(cur); cur = null; };
+  for (let [a, b] of segs) {
+    while (b - a > 0.01) {
+      if (!cur) cur = { parts: [], len: 0 };
+      const room = maxLen - cur.len;
+      if (room < 1.5) { push(); continue; }
+      const take = Math.min(b - a, room);
+      cur.parts.push({ src: a, at: cur.len, len: take });
+      cur.len += take + 0.15;           // pequena pausa entre trechos colados
+      a += take;
+      if (cur.len >= maxLen - 0.5) push();
+    }
+  }
+  push();
+  return chunks;
+}
+
+// mono: Float32Array 16 kHz ; env: dB a cada 20 ms ; ranges: [[a, b]] em segundos (o que está em uso no projeto)
+export async function transcribe(mono, env, { model = 'rapida', ranges = null, onProgress, onDownload, onStage, onWords } = {}) {
   cancelled = false;
   listeners = { download: onDownload, stage: onStage };
   const SR = 16000, total = mono.length / SR;
-  // pontos de corte em momentos de silêncio
-  const cuts = [0];
-  let pos = 0;
-  while (total - pos > 29) {
-    let best = pos + 28, bestDb = 1e9;
-    for (let t = pos + 18; t < pos + 28.5; t += 0.02) {
-      const k = Math.round(t / 0.02);
-      let db = 0; for (let j = -5; j <= 5; j++) db += env[k + j] ?? 0;
-      if (db < bestDb) { bestDb = db; best = t; }
-    }
-    cuts.push(best); pos = best;
-  }
-  cuts.push(total);
   const sorted = Array.from(env).sort((a, b) => a - b);
   const floor = sorted[Math.floor(sorted.length * 0.1)] ?? -80;
+  const segs = voiced(env, total, ranges && ranges.length ? ranges : [[0, total]], floor);
+  const chunks = packChunks(segs);
+  if (!chunks.length) return [];
 
   const info = ASR_MODELS.find(m => m.id === model) || ASR_MODELS[0];
   let threads = 4;
+  // placa de vídeo do celular (WebGPU) quando existir e não tiver falhado antes
+  let device = 'wasm';
+  try { if ('gpu' in navigator && navigator.gpu && localStorage.getItem('ed.nogpu') !== '1' && (await navigator.gpu.requestAdapter())) device = 'webgpu'; } catch (e) { }
   getWorker(threads);
-  // 1) baixa e prepara o modelo (sem limite de tempo no download; limite generoso na preparação)
   onStage && onStage('loading');
-  await call({ type: 'load', model }, null, 0);
+  try { await call({ type: 'load', model, device }, null, 0); }
+  catch (e) {
+    if (device !== 'webgpu' || cancelled) throw e;
+    try { localStorage.setItem('ed.nogpu', '1'); } catch (x) { }
+    device = 'wasm'; getWorker(threads); await call({ type: 'load', model, device }, null, 0);
+  }
   if (cancelled) throw new Error('cancelado');
+  onStage && onStage(device === 'webgpu' ? 'gpu' : 'cpu');
 
-  // 2) transcreve pedaço por pedaço, com estimativa de tempo e vigia
-  let secPerAudioSec = info.speed;         // estimativa inicial (é recalculada no primeiro pedaço)
-  const nChunks = cuts.length - 1;
+  let secPerAudioSec = device === 'webgpu' ? info.speed * 0.35 : info.speed;
+  const n = chunks.length;
   const words = [];
-  for (let i = 0; i < nChunks; i++) {
-    const a = Math.floor(cuts[i] * SR), b = Math.floor(cuts[i + 1] * SR);
-    const piece = mono.slice(a, b);
-    let peak = 0; for (let j = 0; j < piece.length; j += 64) peak = Math.max(peak, Math.abs(piece[j]));
-    if (peak < 0.003) { onProgress && onProgress((i + 1) / nChunks, i + 1, nChunks, 0); continue; }
-    // o Whisper processa sempre 30 s; a estimativa usa 30 s por pedaço
-    const est = Math.max(4, 30 * secPerAudioSec);
+  for (let i = 0; i < n; i++) {
+    const ch = chunks[i];
+    const piece = new Float32Array(Math.ceil(ch.len * SR) + 10);
+    for (const pt of ch.parts) piece.set(mono.subarray(Math.floor(pt.src * SR), Math.floor((pt.src + pt.len) * SR)), Math.floor(pt.at * SR));
+    const est = Math.max(3, 30 * secPerAudioSec);
     let r = null;
-    for (let attempt = 0; attempt < 2 && !r; attempt++) {
+    for (let attempt = 0; attempt < 3 && !r; attempt++) {
       const t0 = performance.now();
       const tick = setInterval(() => {
         const el = (performance.now() - t0) / 1000;
-        onProgress && onProgress((i + Math.min(0.95, el / est)) / nChunks, i + 1, nChunks, Math.max(0, est - el) + est * (nChunks - i - 1));
+        onProgress && onProgress((i + Math.min(0.95, el / est)) / n, i + 1, n, Math.max(0, est - el) + est * (n - i - 1));
       }, 500);
       try {
-        // vigia: se passar muito do esperado, reinicia em modo seguro
-        r = await call({ type: 'chunk', audio: piece.slice(), model, lang: 'portuguese' }, null, Math.max(240000, est * 8000));
-        secPerAudioSec = Math.max(0.2, ((performance.now() - t0) / 1000) / 30);
+        r = await call({ type: 'chunk', audio: piece, model, device, lang: 'portuguese' }, null, Math.max(240000, est * 8000));
+        secPerAudioSec = Math.max(0.05, ((performance.now() - t0) / 1000) / 30);
+        // resultado estranho na placa de vídeo (sem tempos): volta para o processador
+        if (device === 'webgpu' && r.words.length && r.words.some(w => !(w.s >= 0) || w.s > ch.len + 2)) throw new Error('GPU_BAD');
       } catch (e) {
+        r = null;
         if (cancelled) throw new Error('cancelado');
-        if (e.message !== 'TIMEOUT' && e.message !== 'reiniciado' && attempt === 1) throw e;
-        if (attempt === 1) throw new Error('O reconhecimento de voz parou de responder. Tente o modo Rápido ou um vídeo mais curto.');
-        // modo seguro
+        if (device === 'webgpu') {
+          try { localStorage.setItem('ed.nogpu', '1'); } catch (x) { }
+          device = 'wasm'; onStage && onStage('cpu');
+          getWorker(threads); await call({ type: 'load', model, device }, null, 0);
+          continue;
+        }
+        if (e.message !== 'TIMEOUT' && e.message !== 'reiniciado' && attempt >= 1) throw e;
+        if (attempt >= 1) throw new Error('O reconhecimento de voz parou de responder. Tente o modo Relâmpago ou um vídeo mais curto.');
         threads = 1;
         onStage && onStage('safe');
         getWorker(threads);
-        await call({ type: 'load', model }, null, 0);
+        await call({ type: 'load', model, device }, null, 0);
       } finally { clearInterval(tick); }
     }
     if (cancelled) throw new Error('cancelado');
     if (HALLU.test(r.text || '')) r.words = r.words.filter(w => !HALLU.test(w.w));
+    // tempo no pedaço colado -> tempo real na mídia
+    const toSrc = t => {
+      let best = ch.parts[0];
+      for (const pt of ch.parts) if (t >= pt.at - 0.08) best = pt;
+      return best.src + Math.max(0, Math.min(best.len, t - best.at));
+    };
+    const fresh = [];
     for (const w of r.words) {
-      let s = cuts[i] + w.s, e = cuts[i] + (w.e ?? w.s + 0.3);
+      let s = toSrc(w.s), e = toSrc(w.e ?? w.s + 0.3);
       if (!(e > s)) e = s + 0.25;
-      // descarta palavra "fantasma" em silêncio total
       const k0 = Math.floor(s / 0.02), k1 = Math.ceil(e / 0.02);
       let mx = -200; for (let k = k0 - 3; k <= k1 + 3; k++) mx = Math.max(mx, env[k] ?? -200);
       if (mx < floor + 4) continue;
-      words.push({ w: w.w, s: +s.toFixed(3), e: +e.toFixed(3) });
+      fresh.push({ w: w.w, s: +s.toFixed(3), e: +e.toFixed(3) });
     }
-    onProgress && onProgress((i + 1) / nChunks, i + 1, nChunks, secPerAudioSec * 30 * (nChunks - i - 1));
+    words.push(...fresh);
+    onWords && onWords(words.slice().sort((x, y) => x.s - y.s));
+    onProgress && onProgress((i + 1) / n, i + 1, n, secPerAudioSec * 30 * (n - i - 1));
   }
   words.sort((x, y) => x.s - y.s);
   for (let i = 1; i < words.length; i++) if (words[i].s < words[i - 1].e) words[i - 1].e = Math.max(words[i - 1].s + 0.05, words[i].s);

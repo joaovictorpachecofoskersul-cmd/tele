@@ -3,7 +3,7 @@ import { SR, sfx, makeBeat, duckCurve, lufs, limit, ELEMENT_SFX } from './audio.
 import { layout, clipDur, transDur, srcOffset } from './project.js';
 import { TRANS_BY_ID, FX_BY_ID, remapTime } from './effects.js';
 import { decodeRange } from './media.js';
-import { denoiseChannel } from './denoise.js';
+import { denoiseChannel, voiceFx } from './denoise.js';
 
 // Lista de sons (manuais + automáticos) com o instante em que tocam
 export function sfxEvents(p) {
@@ -114,9 +114,10 @@ export async function mixProject(p, getBlob, onProgress = () => { }) {
     } catch (e) { /* áudio com problema: segue sem */ }
   }
   // limpeza de ruído da voz (só a parte de voz e narração; música e efeitos entram depois)
-  if (p.audio.denoise > 0) {
-    onProgress(0.57, 'Limpando o ruído da voz');
-    denoiseChannel(L, p.audio.denoise, SR); denoiseChannel(R, p.audio.denoise, SR);
+  if (p.audio.denoise > 0 || p.audio.voiceFx) {
+    onProgress(0.57, 'Tratando a voz');
+    if (p.audio.denoise > 0) { denoiseChannel(L, p.audio.denoise, SR); denoiseChannel(R, p.audio.denoise, SR); }
+    if (p.audio.voiceFx) { voiceFx(L, p.audio.voiceFx, SR); voiceFx(R, p.audio.voiceFx, SR); }
     for (let n = 0; n < N; n++) voice[n] = (L[n] + R[n]) * 0.5;
   }
   onProgress(0.6, 'Música e batida');
