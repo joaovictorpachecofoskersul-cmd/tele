@@ -853,6 +853,7 @@ export function captionsPanel(app) {
         h('div', { class: 'sec-t' }, 'Reconhecimento de voz'),
         chips(ASR_MODELS, (() => { try { return localStorage.getItem('ed.asr') || 'rapida'; } catch (e) { return 'rapida'; } })(), v => { try { localStorage.setItem('ed.asr', v); } catch (e) { } }),
         h('p', { class: 'hint' }, 'Relâmpago é só um rascunho rápido (erra mais, bom para fala bem clara). Rápida é o equilíbrio e a recomendada. Precisa erra menos, mas demora bem mais. O app só escuta os trechos que estão no vídeo e pula as pausas. Depois você pode corrigir qualquer palavra.'),
+        groqSection(app, draw),
         btn('🎙 Gerar legenda automática', () => { app.closeSheet(); app.transcribeAll(); toast('A legenda vai aparecendo enquanto o app escuta. Pode continuar editando.', 4000); }, 'pri')) : null,
       toggle('Mostrar legenda', cap.on, v => { cap.on = v; app.commit(); }),
       btn('✨ Modelos de legenda', () => captionPresetsPanel(app), 'pri'),
@@ -934,6 +935,26 @@ function markerSection(app, cap, redraw) {
     }),
   );
   return section('Marcador', box);
+}
+
+// legenda rápida pela internet (Groq) + último erro
+function groqSection(app, redraw) {
+  const box = h('div', { class: 'sec' });
+  import('./groq.js').then(G => {
+    const builtin = G.groqBuiltin();
+    box.append(
+      toggle('⚡ Legenda rápida pela internet (segundos)', G.groqOn(), v => { G.setGroqOn(v); }),
+      h('p', { class: 'hint' }, builtin
+        ? 'Usa a Groq quando tiver internet. Sem internet ou se der problema, o app legenda pelo celular sozinho.'
+        : 'Cole uma chave da Groq (console.groq.com) para legendar em segundos. Sem chave, o app legenda pelo celular.'),
+      builtin ? null : h('div', { class: 'nrow' },
+        textInput(G.groqKey(), v => { G.setGroqKey(v); }, { placeholder: 'gsk_...' }),
+        btn('Testar', async () => { try { await G.testGroq(); toast('Chave funcionando ✓'); } catch (e) { toast('Não funcionou: ' + e.message, 6000); } }, 'sm')),
+      app.lastAsrError ? h('div', { class: 'callout' },
+        h('p', {}, `Último problema (${app.lastAsrError.when}): ${app.lastAsrError.msg}`),
+        btn('Copiar o erro', async () => { try { await navigator.clipboard.writeText(app.lastAsrError.msg); toast('Copiado. Pode me mandar no chat.'); } catch (e) { } }, 'sm')) : null);
+  });
+  return box;
 }
 
 // corrigir a tradução frase por frase

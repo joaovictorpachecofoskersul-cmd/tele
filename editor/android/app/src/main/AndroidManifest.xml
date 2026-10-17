@@ -12,7 +12,7 @@
         android:maxSdkVersion="28" />
 
     <application
-        android:label="Editor de Vídeo"
+        android:label="Editaí"
         android:icon="@mipmap/ic_launcher"
         android:roundIcon="@mipmap/ic_launcher"
         android:theme="@android:style/Theme.Black.NoTitleBar"

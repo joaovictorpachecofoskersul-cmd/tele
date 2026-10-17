@@ -12,7 +12,15 @@ android {
         targetSdk = 34
         versionCode = 1
         versionName = '1.0'
+        // chave da legenda rápida (Groq): vem do segredo GROQ_KEY do GitHub na hora do build, nunca do código.
+        // Guardada embaralhada (XOR) para não aparecer como texto puro dentro do APK.
+        def k = (System.getenv('GROQ_KEY') ?: '').trim()
+        def mask = 'acreditar-editor'.bytes
+        def hex = new StringBuilder()
+        k.bytes.eachWithIndex { b, i -> hex.append(String.format('%02x', (b ^ mask[i % mask.length]) & 0xff)) }
+        buildConfigField 'String', 'GK', '"' + hex.toString() + '"'
     }
+    buildFeatures { buildConfig = true }
 
     buildTypes {
         release { minifyEnabled = false }

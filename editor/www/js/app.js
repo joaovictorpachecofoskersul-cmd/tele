@@ -11,6 +11,7 @@ import { transcribe, cancelTranscription } from './asr.js';
 import { exportVideo } from './export.js';
 import { needsProxy, makeProxy } from './proxy.js';
 import * as P from './panels.js';
+import * as G from './groq.js';
 import { h, $, toast, confirmBox, promptBox, btn } from './ui.js';
 import { svgIcon } from './icons.js';
 import { buildHome } from './home.js';
@@ -808,22 +809,57 @@ async function transcribeAllInner() {
         const keep = before.filter(w => !g.todo.some(([a, b]) => w.s >= a && w.s < b));
         return [...keep, ...ws].sort((x, y) => x.s - y.s);
       };
-      const words = await transcribe(mono, app.envOf(mid), {
-        model, ranges: g.todo,
-        onStage: st => {
-          if (st === 'loading') bar.set(pre + 'abrindo o reconhecimento de voz', null);
-          if (st === 'preparing') bar.set(pre + 'preparando (na 1ª vez leva até 1 min)', null);
-          if (st === 'gpu') hw = ' · placa de vídeo';
-          if (st === 'cpu') hw = '';
-          if (st === 'safe') bar.set(pre + 'celular lento, seguindo em modo seguro', null);
-        },
-        onDownload: (l, t) => bar.set(`Baixando o reconhecimento de voz (só na 1ª vez): ${(l / 1e6).toFixed(0)} de ${(t / 1e6).toFixed(0)} MB`, t ? l / t : null),
-        onProgress: (k, part, parts, eta) => {
-          bar.set(pre + `${Math.round(k * 100)}%` + (eta > 3 ? ` · falta ${fmtEta(eta)}` : '') + hw + ` · ${Math.round((Date.now() - t0) / 1000)} s`, 0.05 + 0.95 * k);
-        },
-        // a legenda vai aparecendo enquanto escuta
-        onWords: ws => { p.transcripts[mid] = merge(ws); app.capVersion++; app.requestRender(); },
-      });
+      const live = ws => { p.transcripts[mid] = merge(ws); app.capVersion++; app.requestRender(); };
+      let words = null;
+      // 1) legenda rápida pela internet (Groq)
+      if (G.groqOn() && navigator.onLine !== false) {
+        try {
+          bar.set(pre + 'enviando o áudio (legenda rápida)', 0.1);
+          words = await G.transcribeGroq(mono, g.todo, {
+            onProgress: (k, part, parts) => bar.set(pre + `legenda rápida pela internet${parts > 1 ? ` (parte ${part} de ${parts})` : ''} · ${Math.round((Date.now() - t0) / 1000)} s`, 0.1 + 0.9 * k),
+            onWords: live,
+          });
+          if (cancelledByUser) throw new Error('cancelado');
+        } catch (e) {
+          if (cancelledByUser || e.message === 'cancelado') throw e;
+          app.lastAsrError = { when: new Date().toLocaleString('pt-BR'), msg: 'Groq: ' + e.message };
+          toast('Legenda rápida indisponível (' + e.message + '). Fazendo pelo celular.', 5000);
+          words = null;
+        }
+      }
+      // 2) pelo celular (sem internet ou se a rápida falhar); guarda o que já foi feito se der erro
+      if (!words) {
+        const done = [];
+        const local = () => transcribe(mono, app.envOf(mid), {
+          model, ranges: missing(g.todo, done.length ? done : null),
+          onStage: st => {
+            if (st === 'loading') bar.set(pre + 'abrindo o reconhecimento de voz', null);
+            if (st === 'preparing') bar.set(pre + 'preparando (na 1ª vez leva até 1 min)', null);
+            if (st === 'gpu') hw = ' · placa de vídeo';
+            if (st === 'cpu') hw = '';
+            if (st === 'safe') bar.set(pre + 'celular lento, seguindo em modo seguro', null);
+          },
+          onDownload: (l, t) => bar.set(`Baixando o reconhecimento de voz (só na 1ª vez): ${(l / 1e6).toFixed(0)} de ${(t / 1e6).toFixed(0)} MB`, t ? l / t : null),
+          onProgress: (k, part, parts, eta) => {
+            bar.set(pre + `${Math.round(k * 100)}%` + (eta > 3 ? ` · falta ${fmtEta(eta)}` : '') + hw + ` · ${Math.round((Date.now() - t0) / 1000)} s`, 0.05 + 0.95 * k);
+          },
+          onWords: ws => live([...(p.transcripts[mid] || []).filter(w => done.some(([a, b]) => w.s >= a && w.s < b) && g.todo.some(([a, b]) => w.s >= a && w.s < b)), ...ws].filter((w, i, arr) => arr.findIndex(x => x.s === w.s && x.w === w.w) === i)),
+          onCover: r => done.push(...r),
+        });
+        try { words = await local(); }
+        catch (e) {
+          if (cancelledByUser || e.message === 'cancelado') throw e;
+          // tenta mais uma vez a partir de onde parou, em modo seguro
+          app.lastAsrError = { when: new Date().toLocaleString('pt-BR'), msg: String(e.message || e) };
+          bar.set(pre + 'deu um problema, tentando de novo de onde parou...', null);
+          const got = (p.transcripts[mid] || []).filter(w => g.todo.some(([a, b]) => w.s >= a && w.s < b));
+          try { const more = await local(); words = [...got.filter(w => done.some(([a, b]) => w.s >= a && w.s < b)), ...more]; }
+          catch (e2) {
+            if (done.length) { p.trCover = p.trCover || {}; p.trCover[mid] = [...(p.trCover[mid] || []), ...done].sort((x, y) => x[0] - y[0]); }
+            throw e2;
+          }
+        }
+      }
       p.transcripts[mid] = merge(words);
       p.trCover = p.trCover || {};
       p.trCover[mid] = [...(p.trCover[mid] || []), ...g.todo].sort((x, y) => x[0] - y[0]);

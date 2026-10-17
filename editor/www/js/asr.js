@@ -102,7 +102,7 @@ function packChunks(segs, maxLen = 28) {
 }
 
 // mono: Float32Array 16 kHz ; env: dB a cada 20 ms ; ranges: [[a, b]] em segundos (o que está em uso no projeto)
-export async function transcribe(mono, env, { model = 'rapida', ranges = null, onProgress, onDownload, onStage, onWords } = {}) {
+export async function transcribe(mono, env, { model = 'rapida', ranges = null, onProgress, onDownload, onStage, onWords, onCover } = {}) {
   cancelled = false;
   listeners = { download: onDownload, stage: onStage };
   const SR = 16000, total = mono.length / SR;
@@ -193,6 +193,7 @@ export async function transcribe(mono, env, { model = 'rapida', ranges = null, o
     }
     words.push(...fresh);
     onWords && onWords(words.slice().sort((x, y) => x.s - y.s));
+    onCover && onCover(ch.parts.map(pt => [pt.src, pt.src + pt.len]));
     onProgress && onProgress((i + 1) / n, i + 1, n, secPerAudioSec * 30 * (n - i - 1));
   }
   words.sort((x, y) => x.s - y.s);

@@ -289,7 +289,75 @@ public class MainActivity extends Activity {
         return Uri.fromFile(dst);
     }
 
+    // chave da Groq embutida no build (desembaralha o XOR)
+    private static String groqKey() {
+        String hex = BuildConfig.GK;
+        if (hex == null || hex.isEmpty()) return "";
+        byte[] mask = "acreditar-editor".getBytes();
+        byte[] out = new byte[hex.length() / 2];
+        for (int i = 0; i < out.length; i++) out[i] = (byte) (Integer.parseInt(hex.substring(i * 2, i * 2 + 2), 16) ^ mask[i % mask.length]);
+        return new String(out);
+    }
+
     public class Bridge {
+        @JavascriptInterface
+        public String hasGroq() { return groqKey().isEmpty() ? "0" : "1"; }
+
+        // envio de arquivo (multipart) em segundo plano; a resposta volta por window.__httpDone(id, status, corpo)
+        @JavascriptInterface
+        public String httpUpload(final String id, final String url, final String auth, final String cacheName, final String fileName, final String mime, final String fieldsJson) {
+            final File f;
+            synchronized (uploads) {
+                String n = safe(cacheName);
+                try { OutputStream o = uploads.remove(n); if (o != null) o.close(); } catch (Exception e) { return "erro: " + e.getMessage(); }
+                f = new File(getCacheDir(), n);
+            }
+            new Thread(() -> {
+                int status = -1; String body = "";
+                java.net.HttpURLConnection c = null;
+                try {
+                    String key = (auth == null || auth.isEmpty() || auth.equals("Bearer ")) ? "Bearer " + groqKey() : auth;
+                    String bd = "----editor" + System.currentTimeMillis();
+                    c = (java.net.HttpURLConnection) new java.net.URL(url).openConnection();
+                    c.setConnectTimeout(20000); c.setReadTimeout(170000);
+                    c.setDoOutput(true); c.setRequestMethod("POST");
+                    c.setRequestProperty("Authorization", key);
+                    c.setRequestProperty("Content-Type", "multipart/form-data; boundary=" + bd);
+                    c.setChunkedStreamingMode(64 * 1024);
+                    try (OutputStream os = new BufferedOutputStream(c.getOutputStream())) {
+                        org.json.JSONObject fj = new org.json.JSONObject(fieldsJson == null ? "{}" : fieldsJson);
+                        java.util.Iterator<String> it = fj.keys();
+                        while (it.hasNext()) {
+                            String k = it.next(); Object v = fj.get(k);
+                            List<String> vals = new ArrayList<>();
+                            if (v instanceof org.json.JSONArray) { org.json.JSONArray a = (org.json.JSONArray) v; for (int i = 0; i < a.length(); i++) vals.add(a.getString(i)); }
+                            else vals.add(String.valueOf(v));
+                            for (String x : vals) os.write(("--" + bd + "\r\nContent-Disposition: form-data; name=\"" + k + "\"\r\n\r\n" + x + "\r\n").getBytes("UTF-8"));
+                        }
+                        os.write(("--" + bd + "\r\nContent-Disposition: form-data; name=\"file\"; filename=\"" + fileName + "\"\r\nContent-Type: " + mime + "\r\n\r\n").getBytes("UTF-8"));
+                        try (InputStream in = new FileInputStream(f)) { byte[] buf = new byte[64 * 1024]; int n; while ((n = in.read(buf)) > 0) os.write(buf, 0, n); }
+                        os.write(("\r\n--" + bd + "--\r\n").getBytes("UTF-8"));
+                    }
+                    status = c.getResponseCode();
+                    InputStream rs = status >= 400 ? c.getErrorStream() : c.getInputStream();
+                    if (rs != null) {
+                        java.io.ByteArrayOutputStream bo = new java.io.ByteArrayOutputStream();
+                        byte[] buf = new byte[16 * 1024]; int n; while ((n = rs.read(buf)) > 0) bo.write(buf, 0, n);
+                        body = bo.toString("UTF-8");
+                    }
+                } catch (Exception e) {
+                    status = 0; body = String.valueOf(e.getMessage());
+                } finally {
+                    if (c != null) c.disconnect();
+                    //noinspection ResultOfMethodCallIgnored
+                    f.delete();
+                }
+                final String js = "window.__httpDone && window.__httpDone(" + org.json.JSONObject.quote(id) + "," + status + "," + org.json.JSONObject.quote(body) + ")";
+                runOnUiThread(() -> web.evaluateJavascript(js, null));
+            }).start();
+            return "ok";
+        }
+
         @JavascriptInterface
         public String begin(String name) {
             synchronized (uploads) {

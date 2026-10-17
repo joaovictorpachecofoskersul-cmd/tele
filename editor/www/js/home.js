@@ -53,7 +53,7 @@ export function buildHome(app) {
   ];
 
   root.append(
-    h('div', { class: 'hhead' }, h('b', {}, 'Editor de Vídeo'), h('span', { id: 'storage' })),
+    h('div', { class: 'hhead' }, h('div', { class: 'hbrand' }, h('img', { src: 'img/icone.png', alt: '' }), h('b', {}, 'Editaí')), h('span', { id: 'storage' })),
     h('div', { class: 'hero' },
       h('button', { id: 'newp', type: 'button', class: 'herob new' }, svgIcon('plus', 30), h('span', {}, 'Novo projeto')),
       h('button', { type: 'button', class: 'herob tele', onclick: tele }, svgIcon('mic', 30), h('span', {}, 'Teleprompter'))),
