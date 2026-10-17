@@ -852,7 +852,7 @@ export function captionsPanel(app) {
         h('p', {}, has ? 'Alguns vídeos ainda não têm legenda.' : 'Gere a legenda automática a partir da fala dos vídeos. Na primeira vez o app baixa o reconhecimento de voz (cerca de 100 MB no modo Rápido); depois funciona sem internet.'),
         h('div', { class: 'sec-t' }, 'Reconhecimento de voz'),
         chips(ASR_MODELS, (() => { try { return localStorage.getItem('ed.asr') || 'rapida'; } catch (e) { return 'rapida'; } })(), v => { try { localStorage.setItem('ed.asr', v); } catch (e) { } }),
-        h('p', { class: 'hint' }, 'Relâmpago é a mais rápida (boa para fala clara). Rápida é o equilíbrio. Precisa erra menos, mas demora bem mais. O app só escuta os trechos que estão no vídeo e pula as pausas. Depois você pode corrigir qualquer palavra.'),
+        h('p', { class: 'hint' }, 'Relâmpago é só um rascunho rápido (erra mais, bom para fala bem clara). Rápida é o equilíbrio e a recomendada. Precisa erra menos, mas demora bem mais. O app só escuta os trechos que estão no vídeo e pula as pausas. Depois você pode corrigir qualquer palavra.'),
         btn('🎙 Gerar legenda automática', () => { app.closeSheet(); app.transcribeAll(); toast('A legenda vai aparecendo enquanto o app escuta. Pode continuar editando.', 4000); }, 'pri')) : null,
       toggle('Mostrar legenda', cap.on, v => { cap.on = v; app.commit(); }),
       btn('✨ Modelos de legenda', () => captionPresetsPanel(app), 'pri'),

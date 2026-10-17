@@ -7,7 +7,7 @@ const pending = new Map();
 let listeners = { download: null, stage: null };
 
 export const ASR_MODELS = [
-  { id: 'relampago', name: 'Relâmpago (40 MB)', speed: 0.35 },
+  { id: 'relampago', name: 'Relâmpago (rascunho, erra mais)', speed: 0.35 },
   { id: 'rapida', name: 'Rápida (100 MB)', speed: 0.9 },
   { id: 'precisa', name: 'Precisa (250 MB, mais lenta)', speed: 3 },
 ];
@@ -174,7 +174,16 @@ export async function transcribe(mono, env, { model = 'rapida', ranges = null, o
       return best.src + Math.max(0, Math.min(best.len, t - best.at));
     };
     const fresh = [];
+    // corta "alucinações": palavra depois do fim do áudio do pedaço e a mesma palavra repetida em sequência
+    const raw = [];
     for (const w of r.words) {
+      if (w.s > ch.len - 0.1) continue;
+      const prev = raw[raw.length - 1], prev2 = raw[raw.length - 2];
+      const nw = String(w.w).toLowerCase().replace(/[^\p{L}\p{N}]/gu, '');
+      if (prev && prev2 && nw && nw === prev.n && nw === prev2.n) continue;
+      raw.push({ ...w, n: nw });
+    }
+    for (const w of raw) {
       let s = toSrc(w.s), e = toSrc(w.e ?? w.s + 0.3);
       if (!(e > s)) e = s + 0.25;
       const k0 = Math.floor(s / 0.02), k1 = Math.ceil(e / 0.02);
